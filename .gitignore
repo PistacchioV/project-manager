@@ -1,0 +1,22 @@
+# referencia do design system (template de terceiros; o app usa as copias em static/)
+assets/
+design-system.html
+STACK.md
+
+# dados locais e segredos
+data/
+*.duckdb
+*.duckdb.wal
+.env
+o365_token.txt
+
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# sistema / editor
+.DS_Store
+Thumbs.db
+.claude/

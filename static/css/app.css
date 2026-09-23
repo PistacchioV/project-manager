@@ -1,0 +1,189 @@
+/* ==========================================================================
+   Project Manager - tokens de tema + componentes
+   Base visual: design system FLUX (fundo #0B0C15, acento laranja, grade,
+   rotulos em caixa alta com tracking largo, divisorias de 1px).
+   As cores sao triplas RGB para o Tailwind aplicar opacidade (bg-line/5).
+   ========================================================================== */
+
+:root,
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: 11 12 21;          /* #0B0C15 */
+  --panel: 15 17 28;
+  --raised: 22 24 38;
+  --fg: 255 255 255;       /* titulos */
+  --ink: 226 232 240;      /* texto corrido (#E2E8F0) */
+  --muted: 148 163 184;    /* slate-400 */
+  --subtle: 100 116 139;   /* slate-500 */
+  --line: 255 255 255;     /* divisorias usadas com alfa 5-10% */
+  --accent: 251 146 60;    /* orange-400 */
+  --accent-strong: 249 115 22;
+  --accent-soft: 253 186 116;
+  --sev-critica: 248 113 113;
+  --sev-alta: 251 146 60;
+  --sev-media: 250 204 21;
+  --sev-baixa: 100 116 139;
+  --grid-line: rgba(255, 255, 255, 0.025);
+  --glow: rgba(249, 115, 22, 0.10);
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: 247 246 242;
+  --panel: 255 255 255;
+  --raised: 241 240 235;
+  --fg: 12 13 22;
+  --ink: 30 41 59;
+  --muted: 71 85 105;
+  --subtle: 100 116 139;
+  --line: 15 23 42;
+  --accent: 234 88 12;     /* orange-600: contraste AA sobre claro */
+  --accent-strong: 194 65 12;
+  --accent-soft: 154 52 18;
+  --sev-critica: 220 38 38;
+  --sev-alta: 234 88 12;
+  --sev-media: 202 138 4;
+  --sev-baixa: 100 116 139;
+  --grid-line: rgba(15, 23, 42, 0.045);
+  --glow: rgba(234, 88, 12, 0.08);
+}
+
+html { background: rgb(var(--bg)); }
+body {
+  background: rgb(var(--bg));
+  color: rgb(var(--ink));
+  font-family: 'Geist', 'Inter', system-ui, sans-serif;
+  transition: background-color .25s ease, color .25s ease;
+}
+.font-mono, code, pre { font-family: 'Geist Mono', ui-monospace, monospace; }
+.text-glow { text-shadow: 0 0 30px rgb(var(--fg) / 0.10); }
+:root[data-theme="light"] .text-glow { text-shadow: none; }
+
+/* grade de fundo do design system */
+.bg-grid-pattern {
+  background-image:
+    linear-gradient(to right, var(--grid-line) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--grid-line) 1px, transparent 1px);
+  background-size: 4rem 4rem;
+}
+.glow-blob { background: var(--glow); filter: blur(100px); }
+
+/* esfera decorativa: some no claro para nao sujar o fundo */
+.hero-sphere { opacity: .55; mask-image: radial-gradient(circle, #000 45%, transparent 72%); -webkit-mask-image: radial-gradient(circle, #000 45%, transparent 72%); }
+:root[data-theme="light"] .hero-sphere { opacity: .18; filter: grayscale(1) contrast(.9); }
+
+/* rotulo pequeno em caixa alta (padrao do design system) */
+.eyebrow { font-size: .6875rem; font-weight: 500; letter-spacing: .16em; text-transform: uppercase; color: rgb(var(--subtle)); }
+
+/* ---------------------------------------------------------------- botoes */
+.btn {
+  display: inline-flex; align-items: center; gap: .5rem;
+  font-size: .6875rem; font-weight: 600; letter-spacing: .14em; text-transform: uppercase;
+  padding: .8rem 1.25rem; transition: background-color .2s, color .2s, border-color .2s, opacity .2s;
+  white-space: nowrap;
+}
+.btn:disabled { opacity: .5; cursor: progress; }
+.btn-primary { background: rgb(var(--accent-strong)); color: #fff; box-shadow: 0 8px 30px -12px rgb(var(--accent-strong) / .7); }
+.btn-primary:hover { background: rgb(var(--accent)); }
+.btn-ghost { border: 1px solid rgb(var(--line) / .12); color: rgb(var(--fg)); }
+.btn-ghost:hover { background: rgb(var(--line) / .05); border-color: rgb(var(--line) / .25); }
+.btn-link { color: rgb(var(--fg)); border-bottom: 1px solid rgb(var(--fg) / .3); padding: 0 0 .25rem; }
+.btn-link:hover { border-color: rgb(var(--fg)); }
+
+/* ---------------------------------------------------------- toggle de tema */
+.theme-toggle {
+  position: relative; width: 3.25rem; height: 1.75rem; border-radius: 999px;
+  border: 1px solid rgb(var(--line) / .14); background: rgb(var(--line) / .04);
+  display: inline-flex; align-items: center; justify-content: space-between; padding: 0 .4rem;
+  color: rgb(var(--muted)); transition: border-color .2s;
+}
+.theme-toggle:hover { border-color: rgb(var(--accent) / .6); }
+.theme-toggle:focus-visible { outline: 2px solid rgb(var(--accent)); outline-offset: 2px; }
+.theme-toggle .knob {
+  position: absolute; top: 2px; left: 2px; width: 1.375rem; height: 1.375rem; border-radius: 999px;
+  background: rgb(var(--accent-strong)); box-shadow: 0 0 14px rgb(var(--accent) / .5);
+  transition: transform .25s cubic-bezier(.4, 0, .2, 1);
+}
+:root[data-theme="light"] .theme-toggle .knob { transform: translateX(1.5rem); }
+.theme-toggle iconify-icon { position: relative; z-index: 1; font-size: .8rem; }
+:root[data-theme="dark"] .theme-toggle .ico-moon,
+:root[data-theme="light"] .theme-toggle .ico-sun { color: #fff; }
+
+/* ------------------------------------------------------------ superficies */
+.surface { background: rgb(var(--panel)); }
+.grid-lines { display: grid; gap: 1px; background: rgb(var(--line) / .07); border: 1px solid rgb(var(--line) / .07); }
+.grid-lines > * { background: rgb(var(--bg)); }
+.card-hover { transition: background-color .2s; }
+.card-hover:hover { background: rgb(var(--line) / .025); }
+
+.project-tab { position: relative; text-align: left; cursor: pointer; }
+.project-tab.is-active { background: rgb(var(--panel)); }
+.project-tab.is-active::before { content: ""; position: absolute; inset: 0 0 auto 0; height: 2px; background: rgb(var(--accent-strong)); }
+.project-tab.is-active::after { content: ""; position: absolute; inset: 0; background: rgb(var(--accent) / .05); pointer-events: none; }
+
+/* abas sublinhadas (ex.: seletor de anos do design system) */
+.seg { display: flex; gap: 1.5rem; font-size: .8125rem; font-weight: 500; }
+.seg button { color: rgb(var(--subtle)); padding-bottom: .35rem; border-bottom: 2px solid transparent; transition: color .2s; }
+.seg button:hover { color: rgb(var(--fg)); }
+.seg button.is-active { color: rgb(var(--accent)); border-color: rgb(var(--accent)); }
+
+/* ---------------------------------------------------------- severidade */
+.sev { display: inline-flex; align-items: center; gap: .4rem; font-size: .625rem; font-weight: 600; letter-spacing: .14em; text-transform: uppercase; padding: .25rem .55rem; border: 1px solid currentColor; border-radius: 999px; white-space: nowrap; }
+.sev::before { content: ""; width: .375rem; height: .375rem; border-radius: 999px; background: currentColor; }
+.sev-critica { color: rgb(var(--sev-critica)); background: rgb(var(--sev-critica) / .08); }
+.sev-alta { color: rgb(var(--sev-alta)); background: rgb(var(--sev-alta) / .08); }
+.sev-media { color: rgb(var(--sev-media)); background: rgb(var(--sev-media) / .08); }
+.sev-baixa { color: rgb(var(--sev-baixa)); background: rgb(var(--sev-baixa) / .06); }
+.sev-bar-critica { background: rgb(var(--sev-critica)); }
+.sev-bar-alta { background: rgb(var(--sev-alta)); }
+
+.chip { display: inline-flex; align-items: center; gap: .35rem; font-size: .75rem; padding: .2rem .6rem; border: 1px solid rgb(var(--line) / .1); color: rgb(var(--muted)); border-radius: 999px; }
+.chip b { color: rgb(var(--fg)); font-weight: 500; }
+.chip-accent { border-color: rgb(var(--accent) / .4); color: rgb(var(--accent)); background: rgb(var(--accent) / .06); }
+
+mark.hl-date { background: rgb(var(--accent) / .16); color: rgb(var(--accent-soft)); padding: 0 .2em; border-radius: 3px; }
+:root[data-theme="light"] mark.hl-date { color: rgb(var(--accent-strong)); }
+mark.hl-name { background: transparent; color: rgb(var(--fg)); border-bottom: 1px dashed rgb(var(--accent) / .7); }
+
+/* --------------------------------------------------------------- tabela */
+.tbl { width: 100%; border-collapse: collapse; font-size: .875rem; }
+.tbl th { text-align: left; font-size: .6875rem; font-weight: 500; letter-spacing: .14em; text-transform: uppercase; color: rgb(var(--subtle)); padding: .9rem 1rem; border-bottom: 1px solid rgb(var(--line) / .08); white-space: nowrap; user-select: none; }
+.tbl th[data-sort] { cursor: pointer; }
+.tbl th[data-sort]:hover { color: rgb(var(--fg)); }
+.tbl th .arrow { opacity: 0; margin-left: .25rem; }
+.tbl th.sorted .arrow { opacity: 1; color: rgb(var(--accent)); }
+.tbl td { padding: .9rem 1rem; border-bottom: 1px solid rgb(var(--line) / .05); vertical-align: top; }
+.tbl tr.row { cursor: pointer; transition: background-color .15s; }
+.tbl tr.row:hover { background: rgb(var(--line) / .025); }
+.tbl tr.row.is-open { background: rgb(var(--panel)); }
+.tbl tr.row .caret { transition: transform .2s; color: rgb(var(--subtle)); }
+.tbl tr.row.is-open .caret { transform: rotate(90deg); color: rgb(var(--accent)); }
+.tbl tr.detail > td { background: rgb(var(--panel)); padding: 0; }
+
+.pre-box { white-space: pre-wrap; word-break: break-word; font-size: .8125rem; line-height: 1.6; color: rgb(var(--ink)); background: rgb(var(--bg)); border: 1px solid rgb(var(--line) / .08); padding: 1rem 1.25rem; max-height: 22rem; overflow: auto; }
+.html-preview { width: 100%; height: 22rem; border: 1px solid rgb(var(--line) / .08); background: #fff; }
+
+/* ------------------------------------------------------- formularios */
+.field { width: 100%; background: rgb(var(--bg)); border: 1px solid rgb(var(--line) / .12); color: rgb(var(--fg)); padding: .7rem .9rem; font-size: .875rem; transition: border-color .2s; }
+.field::placeholder { color: rgb(var(--subtle)); }
+.field:focus { outline: none; border-color: rgb(var(--accent) / .7); }
+select.field { appearance: none; background-image: linear-gradient(45deg, transparent 50%, rgb(var(--muted)) 50%), linear-gradient(135deg, rgb(var(--muted)) 50%, transparent 50%); background-position: calc(100% - 16px) 55%, calc(100% - 11px) 55%; background-size: 5px 5px; background-repeat: no-repeat; padding-right: 2rem; }
+
+dialog.modal { background: rgb(var(--panel)); color: rgb(var(--ink)); border: 1px solid rgb(var(--line) / .1); padding: 0; width: min(40rem, calc(100vw - 2rem)); max-height: calc(100vh - 2rem); }
+dialog.modal::backdrop { background: rgb(0 0 0 / .55); backdrop-filter: blur(4px); }
+
+/* ---------------------------------------------------------------- misc */
+.toast { position: fixed; right: 1rem; bottom: 1rem; z-index: 60; background: rgb(var(--panel)); border: 1px solid rgb(var(--line) / .12); border-left: 2px solid rgb(var(--accent-strong)); padding: .85rem 1.1rem; font-size: .875rem; color: rgb(var(--fg)); box-shadow: 0 20px 40px -20px rgb(0 0 0 / .5); transform: translateY(150%); transition: transform .3s ease; max-width: calc(100vw - 2rem); }
+.toast.show { transform: translateY(0); }
+.toast.is-error { border-left-color: rgb(var(--sev-critica)); }
+
+.skeleton { background: linear-gradient(90deg, rgb(var(--line) / .04), rgb(var(--line) / .09), rgb(var(--line) / .04)); background-size: 200% 100%; animation: shimmer 1.4s infinite; }
+@keyframes shimmer { to { background-position: -200% 0; } }
+
+.kw-bar { height: 3px; background: rgb(var(--accent) / .85); }
+.scroll-thin { scrollbar-width: thin; scrollbar-color: rgb(var(--line) / .15) transparent; }
+.chart-box { position: relative; height: 18rem; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
