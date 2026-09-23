@@ -79,6 +79,18 @@ class ExtractionTests(unittest.TestCase):
         self.assertEqual(parse_sender("Ana Souza <Ana@X.com>"), ("Ana Souza", "ana@x.com"))
         self.assertEqual(parse_sender("joao.silva@x.com"), ("Joao Silva", "joao.silva@x.com"))
 
+    def test_parse_sender_corporate_formats(self):
+        # nome "Sobrenome, Nome" do Outlook corporativo: a virgula quebrava o parseaddr
+        self.assertEqual(parse_sender("Souza, Ana <ana.souza@jpmorgan.com>"), ("Souza, Ana", "ana.souza@jpmorgan.com"))
+        self.assertEqual(parse_sender('"Souza, Ana" <ana.souza@jpmorgan.com>'), ("Souza, Ana", "ana.souza@jpmorgan.com"))
+        self.assertEqual(parse_sender("Souza, Ana (CIB, BRA) <ana@x.com>"), ("Souza, Ana (CIB, BRA)", "ana@x.com"))
+        self.assertEqual(parse_sender('"Conceição, João" <joao@x.com>'), ("Conceição, João", "joao@x.com"))
+        # so o nome (sem e-mail) continua sendo nome, nao "Desconhecido"
+        self.assertEqual(parse_sender("Souza, Ana"), ("Souza, Ana", ""))
+        # endereco X500 do Exchange nao e e-mail
+        self.assertEqual(parse_sender("Ana Souza </O=EXCHANGELABS/OU=X/CN=ANA>"), ("Ana Souza", ""))
+        self.assertEqual(parse_sender(""), ("Desconhecido", ""))
+
     def test_project_tag(self):
         self.assertEqual(extract_project_tag("RE: [PROJ-01] Status"), "PROJ-01")
         self.assertIsNone(extract_project_tag("Status sem tag"))

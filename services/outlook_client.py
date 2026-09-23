@@ -33,6 +33,7 @@ OL_IMPORTANCE_HIGH = 2
 # propriedade multivalor das categorias; "=" casa se QUALQUER categoria for igual
 DASL_CATEGORIES = "urn:schemas-microsoft-com:office:office#Keywords"
 PR_INTERNET_MESSAGE_ID = "http://schemas.microsoft.com/mapi/proptag/0x1035001F"
+PR_SENDER_SMTP_ADDRESS = "http://schemas.microsoft.com/mapi/proptag/0x5D01001F"
 
 
 class MailNotConfigured(RuntimeError):
@@ -107,15 +108,26 @@ def _local_to_utc(value) -> datetime:
 
 
 def _smtp_sender(msg) -> str:
-    """Remetente interno do Exchange vem como endereco X500 (/O=...); resolve o SMTP."""
+    """Remetente interno do Exchange vem como endereco X500 (/O=...); resolve o SMTP.
+
+    Tenta, em ordem: usuario do Exchange, propriedade MAPI do SMTP do remetente,
+    e o proprio SenderEmailAddress so se ele for um e-mail de verdade.
+    """
     try:
         if str(msg.SenderEmailType).upper() == "EX":
             user = msg.Sender.GetExchangeUser()
             if user is not None and user.PrimarySmtpAddress:
-                return user.PrimarySmtpAddress
-    except Exception:  # noqa: BLE001 - remetente externo/lista: usa o que houver
+                return str(user.PrimarySmtpAddress)
+    except Exception:  # noqa: BLE001 - lista de distribuicao, contato externo...
         pass
-    return str(msg.SenderEmailAddress or "")
+    try:
+        smtp = msg.PropertyAccessor.GetProperty(PR_SENDER_SMTP_ADDRESS)
+        if smtp and "@" in str(smtp):
+            return str(smtp)
+    except Exception:  # noqa: BLE001 - propriedade ausente em alguns itens
+        pass
+    addr = str(msg.SenderEmailAddress or "")
+    return addr if "@" in addr else ""
 
 
 class OutlookMailClient:
@@ -237,7 +249,8 @@ class OutlookMailClient:
         return RawEmail(
             message_id=str(message_id),
             subject=subject,
-            sender=f"{name} <{addr}>" if addr else name,
+            # aspas: nome corporativo "Souza, Ana" tem virgula
+            sender=f'"{name.replace(chr(34), "")}" <{addr}>' if addr else name,
             date=_local_to_utc(msg.ReceivedTime),
             body=str(msg.HTMLBody or msg.Body or ""),
             importance="high" if msg.Importance == OL_IMPORTANCE_HIGH else "normal",

@@ -151,8 +151,14 @@ class Database:
         }
         with self.cursor(write=True) as cur:
             if message_id:
-                cur.execute("SELECT 1 FROM EmailLog WHERE message_id = ?", [message_id])
-                if cur.fetchone():
+                cur.execute("SELECT id, sender, sender_email FROM EmailLog WHERE message_id = ?", [message_id])
+                row = cur.fetchone()
+                if row:
+                    # ja processado; so conserta remetente gravado como "Desconhecido"
+                    # por versoes antigas (nome "Sobrenome, Nome" quebrava a leitura)
+                    if (row[1] == "Desconhecido" or not row[2]) and analysis.sender_email:
+                        cur.execute("UPDATE EmailLog SET sender = ?, sender_email = ? WHERE id = ?",
+                                    [analysis.sender_name, analysis.sender_email, row[0]])
                     return None
             cur.execute("""
                 INSERT INTO EmailLog (project_id, message_id, subject, sender, sender_email,

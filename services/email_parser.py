@@ -479,10 +479,31 @@ def build_summary(sentences: list[str], keywords: list[tuple[str, int]], max_sen
 # ---------------------------------------------------------------------------
 
 
+_ANGLE_RE = re.compile(r"^\s*(?P<name>.*?)\s*<(?P<addr>[^<>]*)>\s*$")
+_EMAIL_ONLY_RE = re.compile(r"^[^@\s<>]+@[^@\s<>]+\.[^@\s<>]+$")
+
+
 def parse_sender(raw_sender: str) -> tuple[str, str]:
-    """'Ana Souza <ana@x.com>' -> ('Ana Souza', 'ana@x.com'). Sem nome, deriva do e-mail."""
-    name, addr = parseaddr(raw_sender or "")
-    addr = addr.lower()
+    """'Ana Souza <ana@x.com>' -> ('Ana Souza', 'ana@x.com'). Sem nome, deriva do e-mail.
+
+    Tolera o formato corporativo 'Souza, Ana <ana@x.com>' (a virgula quebra o
+    parseaddr, que devolveria vazio) e descarta endereco X500 do Exchange
+    ('/O=EXCHANGELABS/...'), que nao e e-mail.
+    """
+    raw = (raw_sender or "").strip()
+    name, addr = parseaddr(raw)
+    if not (name or addr) or (addr and "@" not in addr and "," in raw):
+        m = _ANGLE_RE.match(raw)
+        if m:
+            name, addr = m.group("name"), m.group("addr")
+        elif _EMAIL_ONLY_RE.match(raw):
+            name, addr = "", raw
+        else:
+            name, addr = raw, ""
+    name = name.strip().strip('"').strip("'").strip()
+    addr = addr.strip().lower()
+    if addr and not _EMAIL_ONLY_RE.match(addr):  # X500 ou lixo: nao e e-mail
+        addr = ""
     if not name and addr:
         local = addr.split("@")[0]
         name = " ".join(p.capitalize() for p in re.split(r"[._-]+", local) if p)
