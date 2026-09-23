@@ -1,8 +1,9 @@
 """
-Dados ficticios para o modo DEMO.
+Dados ficticios usados SOMENTE por scripts/export_mock_data.py para gerar
+static/js/mock-data.js (dashboard aberto com ?mock=1). O aplicativo nunca
+cria projetos ou e-mails de exemplo.
 
-Os e-mails gerados passam pelo MESMO motor de analise dos e-mails reais,
-entao o dashboard demo mostra exatamente o que o sistema calcularia.
+Os e-mails gerados passam pelo MESMO motor de analise dos e-mails reais.
 """
 
 from __future__ import annotations
@@ -102,9 +103,9 @@ DEMO_PROJECTS = [
 ]
 
 
-def seed_demo(db, ingest) -> None:
-    """Cria os projetos demo e processa os e-mails ficticios via ``ingest``."""
+def seed_demo(db) -> None:
+    """Cria os projetos de exemplo num banco (temporario) e processa os e-mails."""
     for i, (name, desc, tag, n) in enumerate(DEMO_PROJECTS):
         pid = db.create_project(name, desc, tag)
         for raw in generate_emails(tag, count=n, days_back=45, seed=42 + i):
-            ingest(pid, raw)
+            db.ingest(pid, raw)

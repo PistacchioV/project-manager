@@ -6,6 +6,9 @@ Rotas de pagina:
     GET  /dashboard                 -> painel principal
 
 API (JSON):
+    GET  /api/settings                         conexao com o Outlook (segredos mascarados)
+    PUT  /api/settings                         salva e-mail do Outlook + credenciais
+    POST /api/settings/test                    testa a conexao (com o que esta no formulario)
     GET  /api/projects                         lista projetos
     POST /api/projects                         cria projeto {name, description, outlook_folder_or_tag}
     GET  /api/projects/<id>/dashboard?days=30  KPIs, series, remetentes, alertas, palavras-chave
@@ -31,10 +34,13 @@ from flask.json.provider import DefaultJSONProvider
 from config import Config
 from models import Database
 from services.email_parser import analyze_email
-from services.outlook_client import RawEmail, get_mail_client
+from services.outlook_client import EMAIL_RE, MailNotConfigured, MailSettings, RawEmail, get_mail_client
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("project-manager")
+
+# nunca voltam para o navegador; a tela so sabe se estao preenchidos
+SECRET_KEYS = ("o365_client_secret", "imap_oauth_token", "imap_password")
 
 
 class IsoJSONProvider(DefaultJSONProvider):
@@ -59,16 +65,32 @@ def create_app(cfg: type[Config] = Config) -> Flask:
     db = Database(cfg.DATABASE_PATH)
     app.extensions["db"] = db
 
-    def ingest(project_id: int, raw: RawEmail) -> int | None:
-        """Analisa um e-mail cru e grava no EmailLog. None = ja processado."""
-        analysis = analyze_email(raw.subject, raw.body, raw.sender, raw.date, raw.importance)
-        return db.insert_email(project_id, raw.message_id, raw.subject, raw.body, analysis)
+    def mail_settings() -> dict:
+        return db.get_settings(cfg.MAIL_DEFAULTS)
 
-    if cfg.SEED_DEMO and not db.list_projects():
-        from services.seed import seed_demo
+    def public_settings() -> dict:
+        """Configuracao para a tela: segredos viram apenas '<chave>_set'."""
+        raw = mail_settings()
+        out = {k: v for k, v in raw.items() if k not in SECRET_KEYS}
+        out.update({f"{k}_set": bool(raw.get(k)) for k in SECRET_KEYS})
+        out["missing"] = MailSettings.from_dict(raw).missing()
+        out["configured"] = not out["missing"]
+        return out
 
-        log.info("Banco vazio: criando projetos e e-mails de demonstracao.")
-        seed_demo(db, ingest)
+    def merged_settings(form: dict) -> dict:
+        """Salvo + formulario. Segredo em branco no formulario = manter o salvo."""
+        merged = mail_settings()
+        for k in cfg.MAIL_DEFAULTS:
+            if k not in form:
+                continue
+            value = form[k]
+            if isinstance(value, bool):
+                value = "1" if value else "0"
+            value = "" if value is None else str(value).strip()
+            if k in SECRET_KEYS and not value:
+                continue
+            merged[k] = value
+        return merged
 
     def project_or_404(project_id: int) -> dict:
         project = db.get_project(project_id)
@@ -83,7 +105,7 @@ def create_app(cfg: type[Config] = Config) -> Flask:
 
     @app.get("/dashboard")
     def dashboard():
-        return render_template("dashboard.html", mail_backend=cfg.MAIL_BACKEND)
+        return render_template("dashboard.html")
 
     @app.get("/favicon.ico")
     def favicon():
@@ -92,7 +114,38 @@ def create_app(cfg: type[Config] = Config) -> Flask:
 
     @app.get("/health")
     def health():
-        return {"status": "ok", "mail_backend": cfg.MAIL_BACKEND}
+        return {"status": "ok", "outlook_configured": public_settings()["configured"]}
+
+    # --------------------------------------------------------------- settings
+    @app.get("/api/settings")
+    def api_get_settings():
+        return jsonify(public_settings())
+
+    @app.put("/api/settings")
+    def api_save_settings():
+        form = request.get_json(silent=True) or {}
+        merged = merged_settings(form)
+        if not EMAIL_RE.match(merged.get("mailbox", "")):
+            return jsonify(error="Informe um e-mail do Outlook válido."), 400
+        if merged.get("backend") not in ("o365", "imap"):
+            return jsonify(error="Método de conexão inválido."), 400
+        for k in ("fetch_limit", "imap_port"):
+            if not str(merged.get(k, "")).isdigit():
+                return jsonify(error=f"Valor numérico inválido em {k}."), 400
+        db.save_settings(merged)
+        return jsonify(public_settings())
+
+    @app.post("/api/settings/test")
+    def api_test_settings():
+        settings = MailSettings.from_dict(merged_settings(request.get_json(silent=True) or {}))
+        try:
+            message = get_mail_client(settings).test()
+        except MailNotConfigured as exc:
+            return jsonify(ok=False, error=str(exc)), 400
+        except Exception as exc:  # noqa: BLE001 - erro de rede/credencial volta para a tela
+            log.exception("Teste de conexao com o Outlook falhou")
+            return jsonify(ok=False, error=f"Não conectou: {exc}"), 502
+        return jsonify(ok=True, message=message)
 
     # --------------------------------------------------------------------- API
     @app.get("/api/projects")
@@ -126,13 +179,15 @@ def create_app(cfg: type[Config] = Config) -> Flask:
     def api_sync(project_id: int):
         project = project_or_404(project_id)
         try:
-            client = get_mail_client(cfg)
+            client = get_mail_client(MailSettings.from_dict(mail_settings()))
             raw_emails = client.fetch(project["outlook_folder_or_tag"])
+        except MailNotConfigured as exc:
+            return jsonify(error=str(exc), needs_settings=True), 400
         except Exception as exc:  # noqa: BLE001 - erro de rede/credencial volta para a tela
             log.exception("Falha ao ler a caixa de correio")
             return jsonify(error=f"Falha ao ler a caixa de correio: {exc}"), 502
-        new = sum(1 for raw in raw_emails if ingest(project_id, raw) is not None)
-        return jsonify(fetched=len(raw_emails), new=new, backend=cfg.MAIL_BACKEND)
+        new = sum(1 for raw in raw_emails if db.ingest(project_id, raw) is not None)
+        return jsonify(fetched=len(raw_emails), new=new)
 
     @app.post("/api/projects/<int:project_id>/emails")
     def api_ingest_manual(project_id: int):
@@ -148,7 +203,7 @@ def create_app(cfg: type[Config] = Config) -> Flask:
             body=data["body"],
             importance=data.get("importance", "normal"),
         )
-        email_id = ingest(project_id, raw)
+        email_id = db.ingest(project_id, raw)
         return jsonify(id=email_id), 201
 
     @app.post("/api/analyze")

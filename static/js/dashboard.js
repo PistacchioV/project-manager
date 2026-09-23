@@ -3,18 +3,20 @@
 
    Fonte de dados:
      - API Flask (/api/projects, /api/projects/<id>/dashboard, .../emails)
-     - window.MOCK_DATA (static/js/mock-data.js) quando a pagina e aberta com
-       ?mock=1, direto do disco (file://) ou se a API falhar. O mock tem
-       exatamente o mesmo formato das respostas da API.
+     - /api/settings: conexao com o Outlook (icone de engrenagem)
+     - window.MOCK_DATA (static/js/mock-data.js) SOMENTE quando a pagina e
+       aberta com ?mock=1 ou direto do disco (file://). O mock tem exatamente
+       o mesmo formato das respostas da API. Sem isso o app comeca vazio.
    ========================================================================== */
 (function () {
   'use strict';
 
   const params = new URLSearchParams(location.search);
-  let useMock = params.has('mock') || location.protocol === 'file:';
+  const useMock = params.has('mock') || location.protocol === 'file:';
 
   const state = {
     projects: [],
+    settings: null,
     projectId: null,
     days: 30,
     dashboard: null,
@@ -81,16 +83,7 @@
   }
 
   async function loadProjects() {
-    if (!useMock) {
-      try {
-        state.projects = await api('/api/projects');
-        return;
-      } catch (err) {
-        console.warn('API indisponível, usando MOCK_DATA', err);
-        useMock = true;
-      }
-    }
-    state.projects = window.MOCK_DATA.projects;
+    state.projects = useMock ? window.MOCK_DATA.projects : await api('/api/projects');
   }
 
   async function loadProject() {
@@ -116,6 +109,22 @@
   }
 
   // ------------------------------------------------------------- render
+  // Sem projetos: esconde o painel e mostra os dois passos iniciais
+  function renderEmpty() {
+    const empty = !state.projects.length;
+    $('#projectContent').classList.toggle('hidden', empty);
+    $('#emptyState').classList.toggle('hidden', !empty);
+    $('#heroActions').classList.toggle('hidden', empty);
+    $('#projectTabsSection').classList.toggle('hidden', empty);
+    if (empty) {
+      $('#heroTag').textContent = 'Inbox de projetos';
+      $('#heroTitle').textContent = 'Nenhum projeto ainda';
+      $('#heroDesc').textContent = 'Conecte a caixa do Outlook e crie um projeto. Os e-mails aparecem aqui depois da primeira sincronização.';
+      document.title = 'Project Manager';
+    }
+    return empty;
+  }
+
   function renderAll() {
     renderHero();
     renderProjectTabs();
@@ -396,6 +405,118 @@
     $$(`[data-tabs="${id}"] button`).forEach((b) => b.classList.toggle('is-active', b.dataset.view === view));
   }
 
+  // ------------------------------------------------------- configuracoes
+  const SECRET_FIELDS = ['o365_client_secret', 'imap_oauth_token', 'imap_password'];
+
+  async function loadSettings() {
+    if (useMock) { $('#outlookStatusText').textContent = 'Dados fictícios'; return; }
+    try {
+      state.settings = await api('/api/settings');
+    } catch (err) {
+      console.error(err);
+    }
+    renderSettingsStatus();
+  }
+
+  function renderSettingsStatus() {
+    const st = state.settings;
+    const ok = !!(st && st.configured);
+    const status = $('#outlookStatus');
+    status.classList.toggle('is-connected', ok);
+    status.classList.toggle('is-pending', !ok);
+    $('#outlookStatusText').textContent = ok ? st.mailbox : 'Outlook não configurado';
+    $('#btnSettings').classList.toggle('needs-attention', !ok);
+    const step = $('#stepOutlookState');
+    step.classList.toggle('is-connected', ok);
+    step.classList.toggle('is-pending', !ok);
+    step.lastChild.textContent = ok ? `Configurado · ${st.mailbox}` : 'Pendente';
+  }
+
+  function setBackend(backend) {
+    const form = $('#formSettings');
+    form.elements.backend.value = backend;
+    $$('#backendSeg button').forEach((b) => {
+      const on = b.dataset.backend === backend;
+      b.classList.toggle('is-active', on);
+      b.setAttribute('aria-checked', on);
+    });
+    $$('[data-backend-panel]').forEach((p) => p.classList.toggle('hidden', p.dataset.backendPanel !== backend));
+  }
+
+  function showSettingsResult(msg, ok) {
+    const el = $('#settingsResult');
+    el.textContent = msg;
+    el.classList.remove('hidden', 'is-ok', 'is-error');
+    el.classList.add(ok ? 'is-ok' : 'is-error');
+  }
+
+  function settingsFormData() {
+    const form = $('#formSettings');
+    const data = Object.fromEntries(new FormData(form));
+    data.mark_as_read = form.elements.mark_as_read.checked;
+    return data;
+  }
+
+  async function openSettings() {
+    if (useMock) { toast('Modo mock: configurações desativadas.'); return; }
+    await loadSettings();
+    const st = state.settings || {};
+    const form = $('#formSettings');
+    form.reset();
+    ['mailbox', 'o365_tenant_id', 'o365_client_id', 'imap_host', 'imap_port', 'fetch_limit'].forEach((k) => {
+      form.elements[k].value = st[k] ?? '';
+    });
+    form.elements.mark_as_read.checked = st.mark_as_read === '1';
+    // segredo salvo nunca volta do servidor: campo vazio = manter
+    SECRET_FIELDS.forEach((k) => {
+      form.elements[k].value = '';
+      form.elements[k].placeholder = st[`${k}_set`] ? '•••••••• salvo · deixe em branco para manter' : '';
+    });
+    setBackend(st.backend || 'o365');
+    $('#settingsResult').classList.add('hidden');
+    $('#dlgSettings').showModal();
+    form.elements.mailbox.focus();
+  }
+
+  function bindSettings() {
+    $('#btnSettings').addEventListener('click', openSettings);
+    $('#outlookStatus').addEventListener('click', openSettings);
+    $$('#backendSeg button').forEach((b) => b.addEventListener('click', () => setBackend(b.dataset.backend)));
+
+    $('#btnTestConn').addEventListener('click', async (ev) => {
+      const btn = ev.currentTarget;
+      btn.disabled = true;
+      showSettingsResult('Testando conexão…', true);
+      try {
+        const r = await api('/api/settings/test', { method: 'POST', body: JSON.stringify(settingsFormData()) });
+        showSettingsResult(r.message, true);
+      } catch (err) {
+        showSettingsResult(err.message, false);
+      } finally {
+        btn.disabled = false;
+      }
+    });
+
+    $('#formSettings').addEventListener('submit', async (ev) => {
+      if (ev.submitter && ev.submitter.value === 'cancel') return;  // fecha normalmente
+      ev.preventDefault();
+      const btn = $('#btnSaveSettings');
+      btn.disabled = true;
+      try {
+        state.settings = await api('/api/settings', { method: 'PUT', body: JSON.stringify(settingsFormData()) });
+        renderSettingsStatus();
+        $('#dlgSettings').close();
+        toast(state.settings.configured
+          ? `Outlook configurado: ${state.settings.mailbox}.`
+          : `Salvo. Ainda falta: ${state.settings.missing.join(', ')}.`);
+      } catch (err) {
+        showSettingsResult(err.message, false);
+      } finally {
+        btn.disabled = false;
+      }
+    });
+  }
+
   // ---------------------------------------------------------------- tema
   function setTheme(theme) {
     document.documentElement.setAttribute('data-theme', theme);
@@ -406,6 +527,11 @@
 
   // --------------------------------------------------------------- eventos
   function bindEvents() {
+    bindSettings();
+    $$('[data-open]').forEach((b) => b.addEventListener('click', () => {
+      if (b.dataset.open === 'settings') openSettings();
+      else $('#dlgProject').showModal();
+    }));
     $('#themeToggle').addEventListener('click', () => {
       setTheme(document.documentElement.getAttribute('data-theme') === 'light' ? 'dark' : 'light');
     });
@@ -499,6 +625,7 @@
         await refresh();
       } catch (err) {
         toast(err.message, true);
+        if (/Configure a conex/.test(err.message)) openSettings();
       } finally {
         btn.disabled = false;
       }
@@ -535,8 +662,11 @@
         state.projects = await api('/api/projects');
         state.projectId = p.id;
         history.replaceState(null, '', `?project=${p.id}`);
+        renderEmpty();
         await refresh();
-        toast(`Projeto “${p.name}” criado. Clique em Sincronizar Outlook.`);
+        toast(state.settings && state.settings.configured
+          ? `Projeto “${p.name}” criado. Clique em Sincronizar Outlook.`
+          : `Projeto “${p.name}” criado. Configure o Outlook na engrenagem para sincronizar.`);
       } catch (err) {
         toast(err.message, true);
       }
@@ -547,13 +677,8 @@
   async function init() {
     bindEvents();
     try {
-      await loadProjects();
-      if (!state.projects.length) {
-        $('#heroTitle').textContent = 'Nenhum projeto';
-        $('#heroDesc').textContent = 'Crie um projeto para começar a ler a inbox.';
-        renderProjectTabs();
-        return;
-      }
+      await Promise.all([loadProjects(), loadSettings()]);
+      if (renderEmpty()) return;
       const wanted = Number(params.get('project'));
       state.projectId = state.projects.some((p) => p.id === wanted) ? wanted : state.projects[0].id;
       await refresh();

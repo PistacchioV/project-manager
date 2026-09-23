@@ -1,9 +1,9 @@
 """
 Gera static/js/mock-data.js a partir do PROPRIO backend.
 
-Sobe o app com um banco temporario em modo demo, chama as mesmas rotas que o
-dashboard usa e grava as respostas em window.MOCK_DATA. Assim o mock tem
-sempre o formato identico ao da API.
+Sobe o app com um banco TEMPORARIO, popula com scripts/demo_data.py, chama as
+mesmas rotas que o dashboard usa e grava as respostas em window.MOCK_DATA.
+Assim o mock tem sempre o formato identico ao da API. O banco real nao e tocado.
 
     python scripts/export_mock_data.py
 """
@@ -19,14 +19,15 @@ sys.path.insert(0, str(ROOT))
 
 with tempfile.TemporaryDirectory() as tmp:
     os.environ["PM_DATABASE"] = str(Path(tmp) / "mock.duckdb")
-    os.environ["PM_SEED_DEMO"] = "1"
-    os.environ["PM_MAIL_BACKEND"] = "demo"
 
     from app import create_app  # noqa: E402  (depois das variaveis de ambiente)
     from config import Config  # noqa: E402
+    from scripts.demo_data import seed_demo  # noqa: E402
 
     Config.DATABASE_PATH = os.environ["PM_DATABASE"]
-    client = create_app(Config).test_client()
+    flask_app = create_app(Config)
+    seed_demo(flask_app.extensions["db"])
+    client = flask_app.test_client()
 
     projects = client.get("/api/projects").get_json()
     dashboard = client.get(f"/api/projects/{projects[0]['id']}/dashboard?days=30").get_json()

@@ -43,7 +43,7 @@
 
 <!-- ================================================================ nav -->
 <nav class="sticky top-0 z-50 w-full border-b border-line/5 bg-bg/70 backdrop-blur-lg">
-  <div class="max-w-7xl mx-auto px-4 md:px-6 h-16 md:h-20 flex items-center justify-between gap-4">
+  <div class="shell h-16 md:h-20 flex items-center justify-between gap-4">
     <div class="flex items-center gap-10">
       <a href="{{ url_for('dashboard') }}" class="flex items-center gap-3 group">
         <img src="{{ url_for('static', filename='img/logo.svg') }}" alt="" class="w-8 h-8 group-hover:scale-105 transition-transform"/>
@@ -59,10 +59,13 @@
       </div>
     </div>
     <div class="flex items-center gap-4">
-      <span class="hidden sm:inline-flex items-center gap-2 text-[11px] font-medium tracking-widest uppercase text-subtle" title="Origem dos e-mails (PM_MAIL_BACKEND)">
-        <span class="w-1.5 h-1.5 rounded-full {{ 'bg-emerald-400' if mail_backend != 'demo' else 'bg-orange-400' }}"></span>
-        {{ {'o365': 'Outlook · Graph', 'imap': 'Outlook · IMAP'}.get(mail_backend, 'Modo demo') }}
-      </span>
+      <button id="outlookStatus" type="button" class="hidden sm:inline-flex items-center gap-2 text-[11px] font-medium tracking-widest uppercase text-subtle hover:text-fg transition-colors" title="Conexão com o Outlook">
+        <span class="status-dot"></span>
+        <span id="outlookStatusText">Outlook…</span>
+      </button>
+      <button id="btnSettings" type="button" class="icon-btn" aria-label="Configurações da conexão com o Outlook" title="Configurações">
+        <iconify-icon icon="solar:settings-bold-duotone" width="20"></iconify-icon>
+      </button>
       <button id="themeToggle" class="theme-toggle" type="button" aria-label="Alternar entre tema claro e escuro" title="Alternar tema">
         <span class="knob"></span>
         <iconify-icon class="ico-moon" icon="solar:moon-bold"></iconify-icon>
@@ -76,7 +79,7 @@
 
 <!-- =============================================================== hero -->
 <header id="visao-geral" class="relative overflow-hidden border-b border-line/5 pt-14 md:pt-20 pb-14 md:pb-20">
-  <div class="max-w-7xl mx-auto px-4 md:px-6 relative">
+  <div class="shell relative">
     <div class="max-w-3xl relative z-10">
       <div class="flex items-center gap-3 mb-6">
         <span class="w-2 h-2 rounded-full animate-pulse bg-accent-strong"></span>
@@ -84,7 +87,7 @@
       </div>
       <h1 id="heroTitle" class="text-5xl md:text-7xl font-medium tracking-tighter leading-[0.95] text-fg mb-6 text-glow">Carregando…</h1>
       <p id="heroDesc" class="text-lg text-muted max-w-xl leading-relaxed mb-10 font-light">&nbsp;</p>
-      <div class="flex flex-wrap items-center gap-4">
+      <div id="heroActions" class="flex flex-wrap items-center gap-4">
         <button id="btnSync" class="btn btn-primary" type="button">
           <iconify-icon icon="solar:refresh-circle-bold-duotone" width="16"></iconify-icon>
           Sincronizar Outlook
@@ -110,21 +113,22 @@
 </header>
 
 <!-- ======================================================= projetos -->
-<section class="border-b border-line/5 bg-bg/60 backdrop-blur-md">
-  <div id="projectTabs" class="max-w-7xl mx-auto grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 divide-y sm:divide-y-0 sm:divide-x divide-line/5">
+<section id="projectTabsSection" class="border-b border-line/5 bg-bg/60 backdrop-blur-md">
+  <div id="projectTabs" class="shell grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-5 divide-y sm:divide-y-0 sm:divide-x divide-line/5">
     <div class="p-8"><div class="skeleton h-16"></div></div>
   </div>
 </section>
 
+<div id="projectContent">
 <!-- =========================================================== KPIs -->
-<section class="max-w-7xl mx-auto px-4 md:px-6 pt-16">
+<section class="shell pt-16">
   <div id="kpis" class="grid-lines grid-cols-2 md:grid-cols-5">
     <div class="p-6 h-28 skeleton"></div><div class="p-6 skeleton"></div><div class="p-6 skeleton"></div><div class="p-6 skeleton"></div><div class="p-6 skeleton"></div>
   </div>
 </section>
 
 <!-- ======================================================== gráficos -->
-<section class="max-w-7xl mx-auto px-4 md:px-6 pt-16">
+<section class="shell pt-16">
   <div class="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-8">
     <h2 class="text-3xl md:text-4xl font-medium tracking-tight text-fg leading-none">Fluxo de comunicação</h2>
     <div class="flex items-center gap-4 text-xs font-medium tracking-widest uppercase text-accent">
@@ -154,7 +158,7 @@
 </section>
 
 <!-- ================================================ alertas + palavras -->
-<section id="alertas" class="max-w-7xl mx-auto px-4 md:px-6 pt-16 scroll-mt-24">
+<section id="alertas" class="shell pt-16 scroll-mt-24">
   <div class="grid-lines grid-cols-1 lg:grid-cols-3">
     <div class="lg:col-span-2 p-6 md:p-8">
       <div class="flex items-center justify-between mb-6">
@@ -180,7 +184,7 @@
 </section>
 
 <!-- ========================================================== e-mails -->
-<section id="emails" class="max-w-7xl mx-auto px-4 md:px-6 py-16 scroll-mt-24">
+<section id="emails" class="shell py-16 scroll-mt-24">
   <div class="flex flex-col md:flex-row md:items-end justify-between gap-6 border-b border-line/5 pb-6 mb-2">
     <div>
       <h2 class="text-3xl md:text-4xl font-medium tracking-tight text-fg leading-none mb-3">E-mails processados</h2>
@@ -227,10 +231,34 @@
     </div>
   </div>
 </section>
+</div>
+
+<!-- ============================================ estado vazio (sem projetos) -->
+<section id="emptyState" class="shell py-16 hidden">
+  <div class="grid-lines grid-cols-1 md:grid-cols-2">
+    <button type="button" data-open="settings" class="p-8 md:p-10 text-left group card-hover">
+      <span class="eyebrow block mb-6">Passo 01</span>
+      <span class="flex items-center justify-center w-12 h-12 rounded-full border border-line/10 bg-line/5 text-fg mb-6 transition-colors group-hover:text-accent group-hover:border-accent/50">
+        <iconify-icon icon="solar:settings-bold-duotone" width="22"></iconify-icon>
+      </span>
+      <span class="block text-2xl font-medium tracking-tight text-fg mb-2">Conectar o Outlook</span>
+      <span class="block text-sm text-muted leading-relaxed max-w-sm">Informe o e-mail da caixa que o sistema vai ler e as credenciais do app no Microsoft Entra ID.</span>
+      <span id="stepOutlookState" class="mt-6 inline-flex items-center gap-2 text-xs tracking-widest uppercase text-subtle"><span class="status-dot"></span>Pendente</span>
+    </button>
+    <button type="button" data-open="project" class="p-8 md:p-10 text-left group card-hover">
+      <span class="eyebrow block mb-6">Passo 02</span>
+      <span class="flex items-center justify-center w-12 h-12 rounded-full border border-line/10 bg-line/5 text-fg mb-6 transition-colors group-hover:text-accent group-hover:border-accent/50">
+        <iconify-icon icon="solar:add-circle-bold-duotone" width="22"></iconify-icon>
+      </span>
+      <span class="block text-2xl font-medium tracking-tight text-fg mb-2">Criar o primeiro projeto</span>
+      <span class="block text-sm text-muted leading-relaxed max-w-sm">Defina a tag procurada no assunto (ex.: <span class="font-mono text-fg">[PROJ-01]</span>) ou a pasta do Outlook. Depois clique em Sincronizar Outlook.</span>
+    </button>
+  </div>
+</section>
 </main>
 
 <footer class="relative z-10 border-t border-line/5">
-  <div class="max-w-7xl mx-auto px-4 md:px-6 py-10 flex flex-col md:flex-row gap-4 justify-between text-xs text-subtle">
+  <div class="shell py-10 flex flex-col md:flex-row gap-4 justify-between text-xs text-subtle">
     <span class="flex items-center gap-3">
       <img src="{{ url_for('static', filename='img/logo.svg') }}" alt="" class="w-5 h-5"/>
       Project Manager · Flask + DuckDB · resumos por regex e contagem de palavras
@@ -240,6 +268,80 @@
 </footer>
 
 <!-- ======================================================== modais -->
+<dialog id="dlgSettings" class="modal modal-lg" aria-labelledby="settingsTitle">
+  <form method="dialog" id="formSettings" class="p-8 space-y-6" novalidate>
+    <div class="flex items-start justify-between gap-4">
+      <div>
+        <p class="eyebrow !text-accent mb-2">Configurações</p>
+        <h3 id="settingsTitle" class="text-2xl font-medium tracking-tight text-fg">Conexão com o Outlook</h3>
+        <p class="text-sm text-muted mt-2">A caixa abaixo é lida a cada sincronização. Os e-mails ficam só neste computador.</p>
+      </div>
+      <button value="cancel" formnovalidate class="icon-btn shrink-0" aria-label="Fechar"><iconify-icon icon="solar:close-circle-linear" width="20"></iconify-icon></button>
+    </div>
+
+    <label class="block space-y-2"><span class="eyebrow">E-mail do Outlook</span>
+      <input name="mailbox" type="email" required class="field text-base" placeholder="projetos@suaempresa.com" autocomplete="email"/>
+    </label>
+
+    <div class="space-y-3">
+      <span class="eyebrow block">Método de conexão</span>
+      <div class="seg" id="backendSeg" role="radiogroup">
+        <button type="button" data-backend="o365" role="radio">Microsoft Graph</button>
+        <button type="button" data-backend="imap" role="radio">IMAP</button>
+      </div>
+      <input type="hidden" name="backend" value="o365"/>
+    </div>
+
+    <div data-backend-panel="o365" class="space-y-4">
+      <p class="text-xs text-subtle leading-relaxed">Registre um app no Microsoft Entra ID com a permissão de aplicativo <span class="font-mono text-ink">Mail.Read</span> (ou <span class="font-mono text-ink">Mail.ReadWrite</span> para marcar como lido) e conceda o consentimento do administrador.</p>
+      <div class="grid sm:grid-cols-2 gap-4">
+        <label class="block space-y-2"><span class="eyebrow">Tenant ID</span>
+          <input name="o365_tenant_id" class="field font-mono text-xs" placeholder="00000000-0000-0000-0000-000000000000" autocomplete="off" spellcheck="false"/></label>
+        <label class="block space-y-2"><span class="eyebrow">Client ID</span>
+          <input name="o365_client_id" class="field font-mono text-xs" placeholder="00000000-0000-0000-0000-000000000000" autocomplete="off" spellcheck="false"/></label>
+      </div>
+      <label class="block space-y-2"><span class="eyebrow">Client Secret</span>
+        <input name="o365_client_secret" type="password" class="field font-mono text-xs" autocomplete="new-password" data-secret/></label>
+    </div>
+
+    <div data-backend-panel="imap" class="space-y-4 hidden">
+      <p class="text-xs text-subtle leading-relaxed">O Exchange Online não aceita mais senha em IMAP. Use um token OAuth2 com o escopo <span class="font-mono text-ink">IMAP.AccessAsUser.All</span>. O usuário do IMAP é o e-mail acima.</p>
+      <div class="grid sm:grid-cols-3 gap-4">
+        <label class="block space-y-2 sm:col-span-2"><span class="eyebrow">Servidor</span>
+          <input name="imap_host" class="field font-mono text-xs" autocomplete="off"/></label>
+        <label class="block space-y-2"><span class="eyebrow">Porta</span>
+          <input name="imap_port" inputmode="numeric" class="field font-mono text-xs"/></label>
+      </div>
+      <label class="block space-y-2"><span class="eyebrow">Token OAuth2</span>
+        <input name="imap_oauth_token" type="password" class="field font-mono text-xs" autocomplete="off" data-secret/></label>
+      <label class="block space-y-2"><span class="eyebrow">Senha (servidores legados)</span>
+        <input name="imap_password" type="password" class="field font-mono text-xs" autocomplete="new-password" data-secret/></label>
+    </div>
+
+    <div class="grid sm:grid-cols-2 gap-4 pt-2 border-t border-line/5">
+      <label class="block space-y-2 pt-4"><span class="eyebrow">E-mails por sincronização</span>
+        <input name="fetch_limit" inputmode="numeric" class="field"/></label>
+      <label class="flex items-center gap-3 pt-4 sm:pt-10 cursor-pointer">
+        <input name="mark_as_read" type="checkbox" class="w-4 h-4 accent-orange-500"/>
+        <span class="text-sm text-ink">Marcar como lido após processar</span>
+      </label>
+    </div>
+
+    <p id="settingsResult" class="hidden text-sm px-4 py-3 border" role="status"></p>
+
+    <div class="flex flex-wrap justify-between gap-3 pt-2">
+      <button type="button" id="btnTestConn" class="btn btn-ghost">
+        <iconify-icon icon="solar:plug-circle-bold-duotone" width="16"></iconify-icon>
+        Testar conexão
+      </button>
+      <div class="flex gap-3">
+        <button value="cancel" formnovalidate class="btn btn-ghost">Cancelar</button>
+        <button type="submit" id="btnSaveSettings" class="btn btn-primary">Salvar</button>
+      </div>
+    </div>
+  </form>
+</dialog>
+
 <dialog id="dlgProject" class="modal">
   <form method="dialog" id="formProject" class="p-8 space-y-5">
     <div>

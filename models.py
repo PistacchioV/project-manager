@@ -2,6 +2,7 @@
 Camada de dados em DuckDB.
 
 Tabelas (nomes do enunciado):
+    AppSetting (key, value)   -- conexao com o Outlook definida na tela
     Project  (id, name, description, outlook_folder_or_tag, created_at)
     EmailLog (id, project_id, message_id, subject, sender, sender_email,
               date_received, raw_body, clean_body, clean_summary,
@@ -22,7 +23,8 @@ from pathlib import Path
 
 import duckdb
 
-from services.email_parser import EmailAnalysis
+from services.email_parser import EmailAnalysis, analyze_email
+from services.outlook_client import RawEmail
 
 URGENCY_ORDER = {"critica": 3, "alta": 2, "media": 1, "baixa": 0}
 
@@ -56,6 +58,11 @@ CREATE TABLE IF NOT EXISTS EmailLog (
 );
 
 CREATE INDEX IF NOT EXISTS idx_email_project_date ON EmailLog(project_id, date_received);
+
+CREATE TABLE IF NOT EXISTS AppSetting (
+    key   VARCHAR PRIMARY KEY,
+    value VARCHAR
+);
 """
 
 
@@ -82,6 +89,19 @@ class Database:
     def _rows(cur) -> list[dict]:
         cols = [d[0] for d in cur.description]
         return [dict(zip(cols, row)) for row in cur.fetchall()]
+
+    # --------------------------------------------------------------- AppSetting
+    def get_settings(self, defaults: dict) -> dict:
+        """Valores salvos na tela; o que nunca foi salvo cai no default (.env)."""
+        with self.cursor() as cur:
+            cur.execute("SELECT key, value FROM AppSetting")
+            saved = dict(cur.fetchall())
+        return {k: saved.get(k, v) for k, v in defaults.items()}
+
+    def save_settings(self, values: dict) -> None:
+        with self.cursor(write=True) as cur:
+            for k, v in values.items():
+                cur.execute("INSERT OR REPLACE INTO AppSetting (key, value) VALUES (?, ?)", [k, str(v)])
 
     # ------------------------------------------------------------------ Project
     def list_projects(self) -> list[dict]:
@@ -111,6 +131,11 @@ class Database:
             return cur.fetchone()[0]
 
     # ----------------------------------------------------------------- EmailLog
+    def ingest(self, project_id: int, raw: RawEmail) -> int | None:
+        """Analisa um e-mail cru pelo motor de regras e grava. None = ja processado."""
+        analysis = analyze_email(raw.subject, raw.body, raw.sender, raw.date, raw.importance)
+        return self.insert_email(project_id, raw.message_id, raw.subject, raw.body, analysis)
+
     def email_exists(self, message_id: str) -> bool:
         with self.cursor() as cur:
             cur.execute("SELECT 1 FROM EmailLog WHERE message_id = ?", [message_id])
