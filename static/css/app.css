@@ -83,6 +83,18 @@ body {
   white-space: nowrap;
 }
 .btn:disabled { opacity: .5; cursor: progress; }
+
+/* estado "processando": spinner no lugar do icone, botao continua legivel */
+.btn-spinner {
+  display: none; width: 14px; height: 14px; flex: none; border-radius: 999px;
+  border: 2px solid currentColor; border-right-color: transparent;
+  animation: btn-spin .7s linear infinite;
+}
+.btn.is-busy { cursor: progress; }
+.btn.is-busy:disabled { opacity: .9; }
+.btn.is-busy .btn-spinner { display: inline-block; }
+.btn.is-busy .btn-icon { display: none; }
+@keyframes btn-spin { to { transform: rotate(360deg); } }
 .btn-primary { background: rgb(var(--accent-strong)); color: #fff; box-shadow: 0 8px 30px -12px rgb(var(--accent-strong) / .7); }
 .btn-primary:hover { background: rgb(var(--accent)); }
 .btn-ghost { border: 1px solid rgb(var(--line) / .12); color: rgb(var(--fg)); }
@@ -206,4 +218,5 @@ dialog.modal::backdrop { background: rgb(0 0 0 / .55); backdrop-filter: blur(4px
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
+  .btn.is-busy .btn-spinner { animation: btn-spin 1.6s linear infinite !important; }
 }

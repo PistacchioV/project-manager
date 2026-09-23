@@ -88,9 +88,10 @@
       <h1 id="heroTitle" class="text-5xl md:text-7xl font-medium tracking-tighter leading-[0.95] text-fg mb-6 text-glow">Carregando…</h1>
       <p id="heroDesc" class="text-lg text-muted max-w-xl leading-relaxed mb-10 font-light">&nbsp;</p>
       <div id="heroActions" class="flex flex-wrap items-center gap-4">
-        <button id="btnSync" class="btn btn-primary" type="button">
-          <iconify-icon icon="solar:refresh-circle-bold-duotone" width="16"></iconify-icon>
-          Sincronizar Outlook
+        <button id="btnSync" class="btn btn-primary" type="button" data-busy-label="Sincronizando…">
+          <span class="btn-spinner" aria-hidden="true"></span>
+          <iconify-icon class="btn-icon" icon="solar:refresh-circle-bold-duotone" width="16"></iconify-icon>
+          <span class="btn-label">Sincronizar Outlook</span>
         </button>
         <button id="btnPaste" class="btn btn-ghost" type="button">
           <iconify-icon icon="solar:letter-bold-duotone" width="16"></iconify-icon>
@@ -292,9 +293,10 @@
     <p id="settingsResult" class="hidden text-sm px-4 py-3 border" role="status"></p>
 
     <div class="flex flex-wrap justify-between gap-3 pt-2">
-      <button type="button" id="btnTestConn" class="btn btn-ghost">
-        <iconify-icon icon="solar:plug-circle-bold-duotone" width="16"></iconify-icon>
-        Testar conexão
+      <button type="button" id="btnTestConn" class="btn btn-ghost" data-busy-label="Testando…">
+        <span class="btn-spinner" aria-hidden="true"></span>
+        <iconify-icon class="btn-icon" icon="solar:plug-circle-bold-duotone" width="16"></iconify-icon>
+        <span class="btn-label">Testar conexão</span>
       </button>
       <div class="flex gap-3">
         <button value="cancel" formnovalidate class="btn btn-ghost">Cancelar</button>

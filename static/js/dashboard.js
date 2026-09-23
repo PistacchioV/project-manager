@@ -59,6 +59,23 @@
     return d === 1 ? 'ontem' : `há ${d} dias`;
   }
 
+  // Botao "processando": spinner no proprio botao, texto de espera e bloqueio de
+  // clique duplo. Largura travada para o botao nao pular quando o texto muda.
+  function setBusy(btn, busy) {
+    const label = btn.querySelector('.btn-label');
+    if (busy) {
+      btn.style.minWidth = `${btn.offsetWidth}px`;
+      btn.dataset.idleLabel = label.textContent;
+      label.textContent = btn.dataset.busyLabel || label.textContent;
+    } else {
+      label.textContent = btn.dataset.idleLabel || label.textContent;
+      btn.style.minWidth = '';
+    }
+    btn.classList.toggle('is-busy', busy);
+    btn.disabled = busy;
+    btn.setAttribute('aria-busy', String(busy));
+  }
+
   function toast(msg, isError = false) {
     const el = $('#toast');
     el.textContent = msg;
@@ -461,15 +478,15 @@
 
     $('#btnTestConn').addEventListener('click', async (ev) => {
       const btn = ev.currentTarget;
-      btn.disabled = true;
-      showSettingsResult('Testando conexão…', true);
+      setBusy(btn, true);
+      $('#settingsResult').classList.add('hidden');  // o spinner no botao ja indica o teste
       try {
         const r = await api('/api/settings/test', { method: 'POST', body: JSON.stringify(settingsFormData()) });
         showSettingsResult(r.message, true);
       } catch (err) {
         showSettingsResult(err.message, false);
       } finally {
-        btn.disabled = false;
+        setBusy(btn, false);
       }
     });
 
@@ -608,7 +625,7 @@
     $('#btnSync').addEventListener('click', async (ev) => {
       if (useMock) { toast('Modo mock: sincronização desativada.'); return; }
       const btn = ev.currentTarget;
-      btn.disabled = true;
+      setBusy(btn, true);
       try {
         const r = await api(`/api/projects/${state.projectId}/sync`, { method: 'POST' });
         toast(`${r.fetched} e-mail(s) lidos, ${r.new} novo(s) processado(s).`);
@@ -616,9 +633,9 @@
         await refresh();
       } catch (err) {
         toast(err.message, true);
-        if (/Configure a conex/.test(err.message)) openSettings();
+        if (/engrenagem/.test(err.message)) openSettings();
       } finally {
-        btn.disabled = false;
+        setBusy(btn, false);
       }
     });
 
