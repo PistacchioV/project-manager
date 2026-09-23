@@ -11,7 +11,8 @@ REM        iniciar.bat noinstall   ... pula a instalacao (util offline)
 REM
 REM  Nao instala Python. Se o desta estacao estiver num lugar que o script nao
 REM  procura, aponte:   set PM_PYTHON=C:\caminho\para\python.exe
-REM  Credenciais do Outlook: copie .env.example para .env e preencha.
+REM  Outlook: informe o e-mail da caixa na engrenagem da tela. A leitura usa o
+REM  Outlook aberto nesta maquina (COM/MAPI, pywin32), como no OTC Tracker.
 REM ============================================================================
 
 setlocal

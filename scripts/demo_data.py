@@ -69,10 +69,10 @@ TEMPLATES = [
 WEEKDAYS = ["segunda-feira", "terça-feira", "quarta-feira", "quinta-feira", "sexta-feira"]
 
 
-def generate_emails(tag: str, count: int, days_back: int = 30, seed: int | None = None) -> list[RawEmail]:
+def generate_emails(category: str, count: int, days_back: int = 30, seed: int | None = None) -> list[RawEmail]:
+    """E-mails ficticios de uma categoria do Outlook (a categoria nao vai no assunto)."""
     rnd = random.Random(seed)
     now = datetime.now(timezone.utc)
-    tag = tag if tag.startswith("[") else f"[{tag}]"
     emails = []
     for _ in range(count):
         subject, body = rnd.choice(TEMPLATES)
@@ -87,7 +87,7 @@ def generate_emails(tag: str, count: int, days_back: int = 30, seed: int | None 
         prefix = rnd.choice(["", "", "RE: ", "RES: "])
         emails.append(RawEmail(
             message_id=f"<demo-{uuid.UUID(int=rnd.getrandbits(128))}@pm.local>",
-            subject=f"{prefix}{tag} {subject}",
+            subject=f"{prefix}{subject}",
             sender=f"{name} <{addr}>",
             date=when,
             body=body.format(nome=other, remetente=name, data=due.strftime("%d/%m"),
@@ -98,14 +98,14 @@ def generate_emails(tag: str, count: int, days_back: int = 30, seed: int | None 
 
 
 DEMO_PROJECTS = [
-    ("Migração ERP", "Migração do ERP legado para a nova plataforma em nuvem.", "[PROJ-01]", 90),
-    ("Portal do Cliente", "Novo portal de autoatendimento e relatórios.", "[PROJ-02]", 35),
+    ("Migração ERP", "Migração do ERP legado para a nova plataforma em nuvem.", "Projeto ERP", 90),
+    ("Portal do Cliente", "Novo portal de autoatendimento e relatórios.", "Portal do Cliente", 35),
 ]
 
 
 def seed_demo(db) -> None:
     """Cria os projetos de exemplo num banco (temporario) e processa os e-mails."""
-    for i, (name, desc, tag, n) in enumerate(DEMO_PROJECTS):
-        pid = db.create_project(name, desc, tag)
-        for raw in generate_emails(tag, count=n, days_back=45, seed=42 + i):
+    for i, (name, desc, category, n) in enumerate(DEMO_PROJECTS):
+        pid = db.create_project(name, desc, category)
+        for raw in generate_emails(category, count=n, days_back=45, seed=42 + i):
             db.ingest(pid, raw)

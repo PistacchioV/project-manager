@@ -83,7 +83,7 @@
     <div class="max-w-3xl relative z-10">
       <div class="flex items-center gap-3 mb-6">
         <span class="w-2 h-2 rounded-full animate-pulse bg-accent-strong"></span>
-        <span class="text-xs font-medium tracking-widest uppercase text-accent" id="heroTag">Inbox do projeto</span>
+        <span class="text-xs font-medium tracking-widest uppercase text-accent" id="heroTag">Inbox de projetos</span>
       </div>
       <h1 id="heroTitle" class="text-5xl md:text-7xl font-medium tracking-tighter leading-[0.95] text-fg mb-6 text-glow">Carregando…</h1>
       <p id="heroDesc" class="text-lg text-muted max-w-xl leading-relaxed mb-10 font-light">&nbsp;</p>
@@ -242,7 +242,7 @@
         <iconify-icon icon="solar:settings-bold-duotone" width="22"></iconify-icon>
       </span>
       <span class="block text-2xl font-medium tracking-tight text-fg mb-2">Conectar o Outlook</span>
-      <span class="block text-sm text-muted leading-relaxed max-w-sm">Informe o e-mail da caixa que o sistema vai ler e as credenciais do app no Microsoft Entra ID.</span>
+      <span class="block text-sm text-muted leading-relaxed max-w-sm">Informe o e-mail da caixa que o sistema vai ler. A leitura usa o Outlook aberto nesta máquina, sem senha.</span>
       <span id="stepOutlookState" class="mt-6 inline-flex items-center gap-2 text-xs tracking-widest uppercase text-subtle"><span class="status-dot"></span>Pendente</span>
     </button>
     <button type="button" data-open="project" class="p-8 md:p-10 text-left group card-hover">
@@ -251,7 +251,7 @@
         <iconify-icon icon="solar:add-circle-bold-duotone" width="22"></iconify-icon>
       </span>
       <span class="block text-2xl font-medium tracking-tight text-fg mb-2">Criar o primeiro projeto</span>
-      <span class="block text-sm text-muted leading-relaxed max-w-sm">Defina a tag procurada no assunto (ex.: <span class="font-mono text-fg">[PROJ-01]</span>) ou a pasta do Outlook. Depois clique em Sincronizar Outlook.</span>
+      <span class="block text-sm text-muted leading-relaxed max-w-sm">Escolha a categoria do Outlook que marca os e-mails do projeto. Depois clique em Sincronizar Outlook.</span>
     </button>
   </div>
 </section>
@@ -268,13 +268,12 @@
 </footer>
 
 <!-- ======================================================== modais -->
-<dialog id="dlgSettings" class="modal modal-lg" aria-labelledby="settingsTitle">
+<dialog id="dlgSettings" class="modal" aria-labelledby="settingsTitle">
   <form method="dialog" id="formSettings" class="p-8 space-y-6" novalidate>
     <div class="flex items-start justify-between gap-4">
       <div>
         <p class="eyebrow !text-accent mb-2">Configurações</p>
         <h3 id="settingsTitle" class="text-2xl font-medium tracking-tight text-fg">Conexão com o Outlook</h3>
-        <p class="text-sm text-muted mt-2">A caixa abaixo é lida a cada sincronização. Os e-mails ficam só neste computador.</p>
       </div>
       <button value="cancel" formnovalidate class="icon-btn shrink-0" aria-label="Fechar"><iconify-icon icon="solar:close-circle-linear" width="20"></iconify-icon></button>
     </div>
@@ -282,50 +281,13 @@
     <label class="block space-y-2"><span class="eyebrow">E-mail do Outlook</span>
       <input name="mailbox" type="email" required class="field text-base" placeholder="projetos@suaempresa.com" autocomplete="email"/>
     </label>
-
-    <div class="space-y-3">
-      <span class="eyebrow block">Método de conexão</span>
-      <div class="seg" id="backendSeg" role="radiogroup">
-        <button type="button" data-backend="o365" role="radio">Microsoft Graph</button>
-        <button type="button" data-backend="imap" role="radio">IMAP</button>
-      </div>
-      <input type="hidden" name="backend" value="o365"/>
-    </div>
-
-    <div data-backend-panel="o365" class="space-y-4">
-      <p class="text-xs text-subtle leading-relaxed">Registre um app no Microsoft Entra ID com a permissão de aplicativo <span class="font-mono text-ink">Mail.Read</span> (ou <span class="font-mono text-ink">Mail.ReadWrite</span> para marcar como lido) e conceda o consentimento do administrador.</p>
-      <div class="grid sm:grid-cols-2 gap-4">
-        <label class="block space-y-2"><span class="eyebrow">Tenant ID</span>
-          <input name="o365_tenant_id" class="field font-mono text-xs" placeholder="00000000-0000-0000-0000-000000000000" autocomplete="off" spellcheck="false"/></label>
-        <label class="block space-y-2"><span class="eyebrow">Client ID</span>
-          <input name="o365_client_id" class="field font-mono text-xs" placeholder="00000000-0000-0000-0000-000000000000" autocomplete="off" spellcheck="false"/></label>
-      </div>
-      <label class="block space-y-2"><span class="eyebrow">Client Secret</span>
-        <input name="o365_client_secret" type="password" class="field font-mono text-xs" autocomplete="new-password" data-secret/></label>
-    </div>
-
-    <div data-backend-panel="imap" class="space-y-4 hidden">
-      <p class="text-xs text-subtle leading-relaxed">O Exchange Online não aceita mais senha em IMAP. Use um token OAuth2 com o escopo <span class="font-mono text-ink">IMAP.AccessAsUser.All</span>. O usuário do IMAP é o e-mail acima.</p>
-      <div class="grid sm:grid-cols-3 gap-4">
-        <label class="block space-y-2 sm:col-span-2"><span class="eyebrow">Servidor</span>
-          <input name="imap_host" class="field font-mono text-xs" autocomplete="off"/></label>
-        <label class="block space-y-2"><span class="eyebrow">Porta</span>
-          <input name="imap_port" inputmode="numeric" class="field font-mono text-xs"/></label>
-      </div>
-      <label class="block space-y-2"><span class="eyebrow">Token OAuth2</span>
-        <input name="imap_oauth_token" type="password" class="field font-mono text-xs" autocomplete="off" data-secret/></label>
-      <label class="block space-y-2"><span class="eyebrow">Senha (servidores legados)</span>
-        <input name="imap_password" type="password" class="field font-mono text-xs" autocomplete="new-password" data-secret/></label>
-    </div>
-
-    <div class="grid sm:grid-cols-2 gap-4 pt-2 border-t border-line/5">
-      <label class="block space-y-2 pt-4"><span class="eyebrow">E-mails por sincronização</span>
-        <input name="fetch_limit" inputmode="numeric" class="field"/></label>
-      <label class="flex items-center gap-3 pt-4 sm:pt-10 cursor-pointer">
-        <input name="mark_as_read" type="checkbox" class="w-4 h-4 accent-orange-500"/>
-        <span class="text-sm text-ink">Marcar como lido após processar</span>
-      </label>
-    </div>
+    <p class="text-sm text-muted leading-relaxed -mt-2">
+      A leitura usa o <span class="text-fg">Outlook aberto nesta máquina</span>, com o mesmo acesso que você já tem, como no OTC Tracker.
+      A caixa precisa estar no seu Outlook, seja a sua ou uma compartilhada. Não é preciso senha.
+    </p>
+    <p id="settingsPlatformWarn" class="hidden text-xs px-4 py-3 border border-accent/40 bg-accent/5 text-accent">
+      Este servidor não está rodando no Windows. Você pode salvar o e-mail, mas a leitura só funciona quando o app roda pelo iniciar.bat na máquina com o Outlook.
+    </p>
 
     <p id="settingsResult" class="hidden text-sm px-4 py-3 border" role="status"></p>
 
@@ -352,10 +314,12 @@
       <input name="name" required class="field" placeholder="Migração ERP"/></label>
     <label class="block space-y-2"><span class="eyebrow">Descrição</span>
       <input name="description" class="field" placeholder="Opcional"/></label>
-    <label class="block space-y-2"><span class="eyebrow">Tag no assunto ou pasta do Outlook</span>
-      <input name="outlook_folder_or_tag" required class="field font-mono" placeholder="[PROJ-03]  ou  Projetos/ERP"/>
-      <span class="block text-xs text-subtle">Entre colchetes = tag procurada no assunto. Sem colchetes = nome da pasta (lê os não lidos).</span>
+    <label class="block space-y-2"><span class="eyebrow">Categoria do Outlook</span>
+      <input name="outlook_folder_or_tag" required class="field" list="categoryList" placeholder="Ex.: Projeto ERP" autocomplete="off"/>
+      <datalist id="categoryList"></datalist>
+      <span class="block text-xs text-subtle">Entram no projeto os e-mails marcados com esta categoria, na Caixa de Entrada e nas subpastas.</span>
     </label>
+    <div id="categoryChips" class="flex flex-wrap gap-1.5 -mt-2"></div>
     <div class="flex justify-end gap-3 pt-2">
       <button value="cancel" formnovalidate class="btn btn-ghost">Cancelar</button>
       <button value="ok" class="btn btn-primary">Criar projeto</button>

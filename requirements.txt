@@ -2,5 +2,5 @@ flask>=3.0
 duckdb>=1.0
 waitress>=2.1
 python-dotenv>=1.0
-# leitura do Outlook via Microsoft Graph (PM_MAIL_BACKEND=o365)
-O365>=2.0
+# leitura do Outlook instalado (COM/MAPI), mesmo modelo do OTC Tracker; so no Windows
+pywin32>=306; sys_platform == "win32"

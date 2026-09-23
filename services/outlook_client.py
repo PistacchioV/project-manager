@@ -1,43 +1,46 @@
 """
-Leitura da caixa de correio do Outlook.
+Leitura da caixa de correio pelo Outlook instalado na maquina (COM/MAPI).
 
-Dois backends com a mesma interface ``fetch(folder_or_tag) -> list[RawEmail]``
-e ``test() -> str``:
+Mesmo modelo do OTC Tracker: o app nao guarda senha nem token. Ele pede ao
+Outlook aberto no Windows a caixa pelo e-mail
+(``Dispatch('Outlook.Application').GetNamespace('MAPI').Folders[email]``) e
+usa o acesso que o usuario ja tem, seja a caixa propria ou uma compartilhada
+adicionada ao perfil. Por isso so o e-mail e configurado na tela.
 
-* ``O365MailClient``  - Microsoft Graph via biblioteca ``O365`` (recomendado).
-  Usa credenciais de aplicativo (client credentials) registradas no Entra ID
-  com a permissao de aplicativo ``Mail.Read`` (ou ``Mail.ReadWrite`` se for
-  marcar como lido).
-* ``IMAPMailClient``  - IMAP em outlook.office365.com:993. A Microsoft
-  desativou autenticacao basica no Exchange Online; use o token OAuth2
-  (XOAUTH2). Senha so funciona em servidores que ainda aceitam LOGIN.
+Regra de busca: cada projeto aponta para uma CATEGORIA do Outlook (as
+etiquetas coloridas, campo ``outlook_folder_or_tag`` do projeto). Entram os
+e-mails, lidos ou nao, marcados com essa categoria na Caixa de Entrada e em
+qualquer subpasta dela.
 
-A caixa (e-mail) e as credenciais vem de ``MailSettings``, preenchido pela
-tela de configuracoes (icone de engrenagem) e gravado no banco.
-
-Regra de busca (enunciado): e-mails NAO LIDOS ou com a tag do projeto no
-assunto. Se ``outlook_folder_or_tag`` tem colchetes (``[PROJ-01]``) ele e uma
-tag procurada no assunto da Caixa de Entrada; senao e o nome de uma pasta, da
-qual vem os nao lidos.
+Windows-only. Fora do Windows (ou sem pywin32) levanta ``OutlookUnavailable``
+com o motivo, e a tela mostra a mensagem.
 """
 
 from __future__ import annotations
 
-import email
-import imaplib
 import logging
 import re
 from dataclasses import dataclass
-from email.header import decode_header, make_header
-from email.message import Message
+from datetime import datetime, timezone
 
 log = logging.getLogger(__name__)
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
+OL_FOLDER_INBOX = 6            # olFolderInbox
+OL_MAIL_ITEM = 43              # olMail (ignora convites, relatorios de entrega...)
+OL_IMPORTANCE_HIGH = 2
+# propriedade multivalor das categorias; "=" casa se QUALQUER categoria for igual
+DASL_CATEGORIES = "urn:schemas-microsoft-com:office:office#Keywords"
+PR_INTERNET_MESSAGE_ID = "http://schemas.microsoft.com/mapi/proptag/0x1035001F"
+
 
 class MailNotConfigured(RuntimeError):
-    """A conexao com o Outlook ainda nao foi configurada na tela."""
+    """O e-mail da caixa ainda nao foi informado na tela."""
+
+
+class OutlookUnavailable(EnvironmentError):
+    """Sem Windows/pywin32/Outlook, ou a caixa nao esta no perfil do Outlook."""
 
 
 @dataclass
@@ -53,205 +56,195 @@ class RawEmail:
 @dataclass
 class MailSettings:
     mailbox: str = ""
-    backend: str = "o365"
     fetch_limit: int = 50
     mark_as_read: bool = False
-    o365_tenant_id: str = ""
-    o365_client_id: str = ""
-    o365_client_secret: str = ""
-    imap_host: str = "outlook.office365.com"
-    imap_port: int = 993
-    imap_oauth_token: str = ""
-    imap_password: str = ""
 
     @classmethod
     def from_dict(cls, d: dict) -> "MailSettings":
         return cls(
             mailbox=(d.get("mailbox") or "").strip(),
-            backend=(d.get("backend") or "o365").lower(),
             fetch_limit=int(d.get("fetch_limit") or 50),
             mark_as_read=str(d.get("mark_as_read")) in ("1", "true", "True"),
-            o365_tenant_id=(d.get("o365_tenant_id") or "").strip(),
-            o365_client_id=(d.get("o365_client_id") or "").strip(),
-            o365_client_secret=d.get("o365_client_secret") or "",
-            imap_host=(d.get("imap_host") or "outlook.office365.com").strip(),
-            imap_port=int(d.get("imap_port") or 993),
-            imap_oauth_token=d.get("imap_oauth_token") or "",
-            imap_password=d.get("imap_password") or "",
         )
 
     def missing(self) -> list[str]:
         """Campos obrigatorios ainda vazios (lista vazia = pronto para conectar)."""
-        faltam = []
-        if not EMAIL_RE.match(self.mailbox):
-            faltam.append("e-mail do Outlook")
-        if self.backend == "o365":
-            for campo, nome in (("o365_tenant_id", "Tenant ID"), ("o365_client_id", "Client ID"),
-                                ("o365_client_secret", "Client Secret")):
-                if not getattr(self, campo):
-                    faltam.append(nome)
-        elif not (self.imap_oauth_token or self.imap_password):
-            faltam.append("token OAuth2 ou senha IMAP")
-        return faltam
+        return [] if EMAIL_RE.match(self.mailbox) else ["e-mail do Outlook"]
 
 
-def is_tag(folder_or_tag: str) -> bool:
-    return bool(re.fullmatch(r"\s*\[.+\]\s*", folder_or_tag or ""))
+def has_category(categories: str, wanted: str) -> bool:
+    """msg.Categories vem como 'A, B' (separador de lista do Windows: ',' ou ';')."""
+    alvo = wanted.strip().lower()
+    return any(c.strip().lower() == alvo for c in re.split(r"[,;]", categories or ""))
 
 
-# ---------------------------------------------------------------------------
-# Microsoft Graph (O365)
-# ---------------------------------------------------------------------------
+def _walk(folder):
+    """A pasta e todas as subpastas (categorizado pode ter sido movido por regra)."""
+    yield folder
+    subs = folder.Folders
+    for i in range(1, subs.Count + 1):
+        yield from _walk(subs.Item(i))
 
 
-class O365MailClient:
-    def __init__(self, s: MailSettings):
-        from O365 import Account  # import tardio: so exige a lib se o backend for usado
+def _subpasta(folder, nome):
+    """Subpasta pelo nome, sem diferenciar maiusculas e espacos nas pontas, ou None.
 
-        self.s = s
-        self.account = Account(
-            (s.o365_client_id, s.o365_client_secret),
-            auth_flow_type="credentials",
-            tenant_id=s.o365_tenant_id,
-        )
-        if not self.account.is_authenticated and not self.account.authenticate():
-            raise RuntimeError("Falha ao autenticar no Microsoft Graph (confira Tenant ID, Client ID e Secret).")
-        self.mailbox = self.account.mailbox(resource=s.mailbox)
-
-    def test(self) -> str:
-        inbox = self.mailbox.inbox_folder()
-        total = sum(1 for _ in inbox.get_messages(limit=1))
-        return f"Conectado a {self.s.mailbox} via Microsoft Graph ({'caixa com mensagens' if total else 'caixa vazia'})."
-
-    def fetch(self, folder_or_tag: str) -> list[RawEmail]:
-        if is_tag(folder_or_tag):
-            folder = self.mailbox.inbox_folder()
-            tag = folder_or_tag.strip()
-            # nao lidos que tragam a tag OU qualquer um com a tag (lido ou nao)
-            query = (self.mailbox.new_query()
-                     .on_attribute("subject").contains(tag)
-                     .chain("or").on_attribute("isRead").equals(False))
-        else:
-            folder = self.mailbox.get_folder(folder_name=folder_or_tag)
-            if folder is None:
-                raise RuntimeError(f"Pasta '{folder_or_tag}' nao encontrada na caixa {self.s.mailbox}.")
-            query = self.mailbox.new_query().on_attribute("isRead").equals(False)
-
-        out = []
-        for msg in folder.get_messages(limit=self.s.fetch_limit, query=query, download_attachments=False):
-            subject = msg.subject or ""
-            # com tag: nao lidos sem a tag pertencem a outro projeto
-            if is_tag(folder_or_tag) and folder_or_tag.strip().lower() not in subject.lower():
-                continue
-            sender = msg.sender
-            out.append(RawEmail(
-                message_id=msg.internet_message_id or msg.object_id,
-                subject=subject,
-                sender=f"{sender.name} <{sender.address}>" if sender else "",
-                date=msg.received,
-                body=msg.body or "",
-                importance=str(getattr(msg.importance, "value", msg.importance) or "normal"),
-            ))
-            if self.s.mark_as_read:
-                msg.mark_as_read()
-        return out
+    Pelo indice nao da: a ordem das pastas no Outlook muda quando alguem cria outra.
+    """
+    subs = folder.Folders
+    alvo = str(nome or "").strip().lower()
+    for i in range(1, subs.Count + 1):
+        f = subs.Item(i)
+        if str(f.Name).strip().lower() == alvo:
+            return f
+    return None
 
 
-# ---------------------------------------------------------------------------
-# IMAP (Office 365)
-# ---------------------------------------------------------------------------
+def _local_to_utc(value) -> datetime:
+    """ReceivedTime do COM vem no horario local da maquina; grava em UTC."""
+    naive = datetime(value.year, value.month, value.day, value.hour, value.minute, value.second)
+    return naive.astimezone(timezone.utc)  # datetime ingenuo = horario local
 
 
-def _decode(value: str | None) -> str:
-    return str(make_header(decode_header(value))) if value else ""
+def _smtp_sender(msg) -> str:
+    """Remetente interno do Exchange vem como endereco X500 (/O=...); resolve o SMTP."""
+    try:
+        if str(msg.SenderEmailType).upper() == "EX":
+            user = msg.Sender.GetExchangeUser()
+            if user is not None and user.PrimarySmtpAddress:
+                return user.PrimarySmtpAddress
+    except Exception:  # noqa: BLE001 - remetente externo/lista: usa o que houver
+        pass
+    return str(msg.SenderEmailAddress or "")
 
 
-def _message_body(msg: Message) -> str:
-    """Prefere text/html (mais fiel ao Outlook); cai para text/plain."""
-    html_part = plain_part = None
-    for part in msg.walk() if msg.is_multipart() else [msg]:
-        if part.get_content_maintype() == "multipart" or part.get("Content-Disposition", "").startswith("attachment"):
-            continue
-        ctype = part.get_content_type()
-        if ctype == "text/html" and html_part is None:
-            html_part = part
-        elif ctype == "text/plain" and plain_part is None:
-            plain_part = part
-    part = html_part or plain_part
-    if part is None:
-        return ""
-    payload = part.get_payload(decode=True) or b""
-    return payload.decode(part.get_content_charset() or "utf-8", errors="replace")
-
-
-class IMAPMailClient:
+class OutlookMailClient:
     def __init__(self, s: MailSettings):
         self.s = s
 
-    def _connect(self) -> imaplib.IMAP4_SSL:
-        conn = imaplib.IMAP4_SSL(self.s.imap_host, self.s.imap_port, timeout=20)
-        if self.s.imap_oauth_token:
-            auth = f"user={self.s.mailbox}\x01auth=Bearer {self.s.imap_oauth_token}\x01\x01"
-            conn.authenticate("XOAUTH2", lambda _: auth.encode())
-        else:
-            conn.login(self.s.mailbox, self.s.imap_password)
-        return conn
-
-    def test(self) -> str:
-        conn = self._connect()
+    # ------------------------------------------------------------- conexao
+    def _open(self):
+        """(com, inbox) da caixa configurada. Chamador faz CoUninitialize."""
         try:
-            status, data = conn.select("INBOX", readonly=True)
-            n = data[0].decode() if status == "OK" else "?"
-            return f"Conectado a {self.s.mailbox} via IMAP ({n} mensagens na Caixa de Entrada)."
+            import pythoncom
+            import win32com.client as w32
+        except ImportError as exc:
+            raise OutlookUnavailable(
+                "Leitura do Outlook requer Windows com o Outlook instalado (pacote pywin32). "
+                "Rode o app pelo iniciar.bat na máquina onde o Outlook está aberto.") from exc
+
+        pythoncom.CoInitialize()  # cada thread do waitress precisa do seu apartment COM
+        try:
+            ns = w32.Dispatch("Outlook.Application").GetNamespace("MAPI")
+        except Exception as exc:  # noqa: BLE001
+            pythoncom.CoUninitialize()
+            raise OutlookUnavailable(f"Não consegui abrir o Outlook: {exc}") from exc
+
+        try:
+            store = ns.Folders[self.s.mailbox]
+        except Exception as exc:  # noqa: BLE001
+            pythoncom.CoUninitialize()
+            raise OutlookUnavailable(
+                f"A caixa {self.s.mailbox} não está no Outlook desta máquina. "
+                "Adicione-a ao perfil (própria ou compartilhada) e tente de novo.") from exc
+
+        # Caixa de Entrada pelo tipo (independe do idioma); nomes como reserva
+        inbox = None
+        try:
+            inbox = store.Store.GetDefaultFolder(OL_FOLDER_INBOX)
+        except Exception:  # noqa: BLE001
+            inbox = _subpasta(store, "Inbox") or _subpasta(store, "Caixa de Entrada")
+        if inbox is None:
+            pythoncom.CoUninitialize()
+            raise OutlookUnavailable(f"Caixa de Entrada não encontrada em {self.s.mailbox}.")
+        return pythoncom, inbox
+
+    def test(self) -> str:
+        com, inbox = self._open()
+        try:
+            return (f"Conectado a {self.s.mailbox} pelo Outlook desta máquina "
+                    f"({inbox.Items.Count} mensagens na Caixa de Entrada).")
         finally:
-            try:
-                conn.logout()
-            except Exception:  # noqa: BLE001 - desconexao best-effort
-                pass
+            com.CoUninitialize()
 
-    def fetch(self, folder_or_tag: str) -> list[RawEmail]:
-        conn = self._connect()
+    def categories(self) -> list[str]:
+        """Categorias do perfil do Outlook (lista mestra), para sugerir no cadastro."""
+        com, inbox = self._open()
         try:
-            if is_tag(folder_or_tag):
-                conn.select("INBOX", readonly=not self.s.mark_as_read)
-                tag = folder_or_tag.strip().replace('"', "")
-                # IMAP SEARCH: SUBJECT faz busca por substring
-                status, data = conn.search(None, f'(SUBJECT "{tag}")')
-            else:
-                conn.select(f'"{folder_or_tag}"', readonly=not self.s.mark_as_read)
-                status, data = conn.search(None, "UNSEEN")
-            if status != "OK":
-                return []
-            ids = data[0].split()[-self.s.fetch_limit:]
-            out = []
-            for num in ids:
-                # BODY.PEEK nao altera a flag \Seen
-                fetch_cmd = "(RFC822)" if self.s.mark_as_read else "(BODY.PEEK[])"
-                status, parts = conn.fetch(num, fetch_cmd)
-                if status != "OK" or not parts or not isinstance(parts[0], tuple):
-                    continue
-                msg = email.message_from_bytes(parts[0][1])
-                out.append(RawEmail(
-                    message_id=(msg.get("Message-ID") or f"imap-{num.decode()}").strip(),
-                    subject=_decode(msg.get("Subject")),
-                    sender=_decode(msg.get("From")),
-                    date=msg.get("Date"),
-                    body=_message_body(msg),
-                    importance="high" if (msg.get("Importance", "").lower() == "high"
-                                          or msg.get("X-Priority", "").startswith("1")) else "normal",
-                ))
+            cats = inbox.Session.Categories
+            return sorted((str(cats.Item(i).Name) for i in range(1, cats.Count + 1)), key=str.lower)
+        finally:
+            com.CoUninitialize()
+
+    # -------------------------------------------------------------- leitura
+    def fetch(self, category: str) -> list[RawEmail]:
+        category = (category or "").strip()
+        com, inbox = self._open()
+        try:
+            # grafia exata da lista mestra ("projeto erp" -> "Projeto ERP")
+            try:
+                cats = inbox.Session.Categories
+                for i in range(1, cats.Count + 1):
+                    if str(cats.Item(i).Name).strip().lower() == category.lower():
+                        category = str(cats.Item(i).Name)
+                        break
+            except Exception:  # noqa: BLE001 - sem lista mestra, usa o texto digitado
+                pass
+            restriction = f"@SQL=\"{DASL_CATEGORIES}\" = '{category.replace(chr(39), chr(39) * 2)}'"
+            found = []
+            for folder in _walk(inbox):
+                items = folder.Items
+                try:
+                    items = items.Restrict(restriction)
+                except Exception:  # noqa: BLE001 - algumas caixas recusam o filtro; varre tudo
+                    log.info("Restrict recusado em %s/%s; varrendo", self.s.mailbox, folder.Name)
+                items.Sort("[ReceivedTime]", True)
+                n = 0
+                for msg in items:
+                    if n >= self.s.fetch_limit:
+                        break
+                    try:
+                        # o teste em Python e o que decide (vale tambem sem Restrict)
+                        if msg.Class != OL_MAIL_ITEM or not has_category(str(msg.Categories or ""), category):
+                            continue
+                        found.append(msg)
+                        n += 1
+                    except Exception as exc:  # noqa: BLE001 - um item ruim nao derruba a sincronizacao
+                        log.warning("Mensagem ignorada: %s", exc)
+
+            found.sort(key=lambda m: _local_to_utc(m.ReceivedTime), reverse=True)
+            out: list[RawEmail] = []
+            for msg in found[: self.s.fetch_limit]:
+                try:
+                    out.append(self._to_raw(msg, str(msg.Subject or "")))
+                    if self.s.mark_as_read and msg.UnRead:
+                        msg.UnRead = False
+                        msg.Save()
+                except Exception as exc:  # noqa: BLE001
+                    log.warning("Mensagem ignorada: %s", exc)
             return out
         finally:
-            try:
-                conn.logout()
-            except Exception:  # noqa: BLE001 - desconexao best-effort
-                pass
+            com.CoUninitialize()
+
+    @staticmethod
+    def _to_raw(msg, subject: str) -> RawEmail:
+        try:
+            message_id = msg.PropertyAccessor.GetProperty(PR_INTERNET_MESSAGE_ID) or msg.EntryID
+        except Exception:  # noqa: BLE001
+            message_id = msg.EntryID
+        name = str(msg.SenderName or "")
+        addr = _smtp_sender(msg)
+        return RawEmail(
+            message_id=str(message_id),
+            subject=subject,
+            sender=f"{name} <{addr}>" if addr else name,
+            date=_local_to_utc(msg.ReceivedTime),
+            body=str(msg.HTMLBody or msg.Body or ""),
+            importance="high" if msg.Importance == OL_IMPORTANCE_HIGH else "normal",
+        )
 
 
-def get_mail_client(settings: MailSettings):
-    faltam = settings.missing()
-    if faltam:
-        raise MailNotConfigured("Configure a conexão com o Outlook (engrenagem no topo). Falta: " + ", ".join(faltam) + ".")
-    if settings.backend == "imap":
-        return IMAPMailClient(settings)
-    return O365MailClient(settings)
+def get_mail_client(settings: MailSettings) -> OutlookMailClient:
+    if settings.missing():
+        raise MailNotConfigured("Informe o e-mail do Outlook na engrenagem do topo.")
+    return OutlookMailClient(settings)

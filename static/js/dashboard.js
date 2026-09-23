@@ -137,7 +137,7 @@
 
   function renderHero() {
     const p = state.dashboard.project;
-    $('#heroTag').textContent = `Inbox do projeto · ${p.outlook_folder_or_tag}`;
+    $('#heroTag').textContent = `Categoria do Outlook · ${p.outlook_folder_or_tag}`;
     $('#heroTitle').textContent = p.name;
     $('#heroDesc').textContent = p.description || 'Sem descrição.';
     document.title = `${p.name} | Project Manager`;
@@ -147,7 +147,8 @@
     const wrap = $('#projectTabs');
     const tabs = state.projects.map((p, i) => `
       <button type="button" class="project-tab p-6 md:p-8 group card-hover ${p.id === state.projectId ? 'is-active' : ''}" data-project="${p.id}">
-        <span class="relative eyebrow block mb-2 ${p.id === state.projectId ? '!text-accent' : ''}">Projeto ${String(i + 1).padStart(2, '0')} · ${esc(p.outlook_folder_or_tag)}</span>
+        <span class="relative eyebrow block mb-2 ${p.id === state.projectId ? '!text-accent' : ''}">Projeto ${String(i + 1).padStart(2, '0')}</span>
+        <span class="relative chip mb-3 !text-[11px]"><iconify-icon icon="solar:tag-bold-duotone" class="text-accent"></iconify-icon>${esc(p.outlook_folder_or_tag)}</span>
         <span class="relative block text-xl font-medium tracking-tight text-fg mb-1 transition-colors group-hover:text-accent">${esc(p.name)}</span>
         <span class="relative block text-sm text-muted">${p.email_count} e-mails · <span class="${p.urgent_count ? 'text-accent' : ''}">${p.urgent_count} urgentes</span></span>
       </button>`).join('');
@@ -406,8 +407,6 @@
   }
 
   // ------------------------------------------------------- configuracoes
-  const SECRET_FIELDS = ['o365_client_secret', 'imap_oauth_token', 'imap_password'];
-
   async function loadSettings() {
     if (useMock) { $('#outlookStatusText').textContent = 'Dados fictícios'; return; }
     try {
@@ -432,17 +431,6 @@
     step.lastChild.textContent = ok ? `Configurado · ${st.mailbox}` : 'Pendente';
   }
 
-  function setBackend(backend) {
-    const form = $('#formSettings');
-    form.elements.backend.value = backend;
-    $$('#backendSeg button').forEach((b) => {
-      const on = b.dataset.backend === backend;
-      b.classList.toggle('is-active', on);
-      b.setAttribute('aria-checked', on);
-    });
-    $$('[data-backend-panel]').forEach((p) => p.classList.toggle('hidden', p.dataset.backendPanel !== backend));
-  }
-
   function showSettingsResult(msg, ok) {
     const el = $('#settingsResult');
     el.textContent = msg;
@@ -451,10 +439,7 @@
   }
 
   function settingsFormData() {
-    const form = $('#formSettings');
-    const data = Object.fromEntries(new FormData(form));
-    data.mark_as_read = form.elements.mark_as_read.checked;
-    return data;
+    return { mailbox: $('#formSettings').elements.mailbox.value.trim() };
   }
 
   async function openSettings() {
@@ -463,16 +448,8 @@
     const st = state.settings || {};
     const form = $('#formSettings');
     form.reset();
-    ['mailbox', 'o365_tenant_id', 'o365_client_id', 'imap_host', 'imap_port', 'fetch_limit'].forEach((k) => {
-      form.elements[k].value = st[k] ?? '';
-    });
-    form.elements.mark_as_read.checked = st.mark_as_read === '1';
-    // segredo salvo nunca volta do servidor: campo vazio = manter
-    SECRET_FIELDS.forEach((k) => {
-      form.elements[k].value = '';
-      form.elements[k].placeholder = st[`${k}_set`] ? '•••••••• salvo · deixe em branco para manter' : '';
-    });
-    setBackend(st.backend || 'o365');
+    form.elements.mailbox.value = st.mailbox || '';
+    $('#settingsPlatformWarn').classList.toggle('hidden', st.outlook_available !== false);
     $('#settingsResult').classList.add('hidden');
     $('#dlgSettings').showModal();
     form.elements.mailbox.focus();
@@ -481,7 +458,6 @@
   function bindSettings() {
     $('#btnSettings').addEventListener('click', openSettings);
     $('#outlookStatus').addEventListener('click', openSettings);
-    $$('#backendSeg button').forEach((b) => b.addEventListener('click', () => setBackend(b.dataset.backend)));
 
     $('#btnTestConn').addEventListener('click', async (ev) => {
       const btn = ev.currentTarget;
@@ -506,15 +482,30 @@
         state.settings = await api('/api/settings', { method: 'PUT', body: JSON.stringify(settingsFormData()) });
         renderSettingsStatus();
         $('#dlgSettings').close();
-        toast(state.settings.configured
-          ? `Outlook configurado: ${state.settings.mailbox}.`
-          : `Salvo. Ainda falta: ${state.settings.missing.join(', ')}.`);
+        toast(`Outlook configurado: ${state.settings.mailbox}.`);
       } catch (err) {
         showSettingsResult(err.message, false);
       } finally {
         btn.disabled = false;
       }
     });
+  }
+
+  // ----------------------------------------------- novo projeto (categoria)
+  // Sugere as categorias que ja existem no Outlook; sem Outlook, texto livre.
+  async function openProjectDialog() {
+    $('#formProject').reset();
+    $('#categoryChips').innerHTML = '';
+    $('#dlgProject').showModal();
+    if (useMock) return;
+    try {
+      const { categories = [] } = await api('/api/outlook/categories');
+      $('#categoryList').innerHTML = categories.map((c) => `<option value="${esc(c)}"></option>`).join('');
+      $('#categoryChips').innerHTML = categories.map((c) =>
+        `<button type="button" class="chip hover:!text-accent hover:!border-accent/50 transition-colors" data-category="${esc(c)}">${esc(c)}</button>`).join('');
+    } catch (err) {
+      console.warn(err);
+    }
   }
 
   // ---------------------------------------------------------------- tema
@@ -530,14 +521,14 @@
     bindSettings();
     $$('[data-open]').forEach((b) => b.addEventListener('click', () => {
       if (b.dataset.open === 'settings') openSettings();
-      else $('#dlgProject').showModal();
+      else openProjectDialog();
     }));
     $('#themeToggle').addEventListener('click', () => {
       setTheme(document.documentElement.getAttribute('data-theme') === 'light' ? 'dark' : 'light');
     });
 
     $('#projectTabs').addEventListener('click', async (ev) => {
-      if (ev.target.closest('#btnNewProject')) { $('#dlgProject').showModal(); return; }
+      if (ev.target.closest('#btnNewProject')) { openProjectDialog(); return; }
       const tab = ev.target.closest('[data-project]');
       if (!tab || Number(tab.dataset.project) === state.projectId) return;
       if (useMock) { toast('Modo mock: apenas o projeto de exemplo tem dados.'); return; }
@@ -632,6 +623,13 @@
     });
 
     $('#btnPaste').addEventListener('click', () => $('#dlgPaste').showModal());
+
+    $('#categoryChips').addEventListener('click', (ev) => {
+      const chip = ev.target.closest('[data-category]');
+      if (!chip) return;
+      $('#formProject').elements.outlook_folder_or_tag.value = chip.dataset.category;
+      $$('#categoryChips [data-category]').forEach((c) => c.classList.toggle('chip-accent', c === chip));
+    });
 
     $('#dlgPaste').addEventListener('close', async () => {
       const dlg = $('#dlgPaste');

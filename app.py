@@ -6,11 +6,13 @@ Rotas de pagina:
     GET  /dashboard                 -> painel principal
 
 API (JSON):
-    GET  /api/settings                         conexao com o Outlook (segredos mascarados)
-    PUT  /api/settings                         salva e-mail do Outlook + credenciais
+    GET  /api/settings                         caixa do Outlook configurada
+    PUT  /api/settings                         salva o e-mail da caixa
     POST /api/settings/test                    testa a conexao (com o que esta no formulario)
+    GET  /api/outlook/categories               categorias do Outlook (sugestoes do cadastro)
     GET  /api/projects                         lista projetos
     POST /api/projects                         cria projeto {name, description, outlook_folder_or_tag}
+                                               (outlook_folder_or_tag = categoria do Outlook)
     GET  /api/projects/<id>/dashboard?days=30  KPIs, series, remetentes, alertas, palavras-chave
     GET  /api/projects/<id>/emails             e-mails processados (resumo + original)
     POST /api/projects/<id>/sync               busca no Outlook e processa os novos
@@ -25,6 +27,7 @@ from __future__ import annotations
 
 import logging
 import os
+import sys
 
 from datetime import date, datetime
 
@@ -34,13 +37,11 @@ from flask.json.provider import DefaultJSONProvider
 from config import Config
 from models import Database
 from services.email_parser import analyze_email
-from services.outlook_client import EMAIL_RE, MailNotConfigured, MailSettings, RawEmail, get_mail_client
+from services.outlook_client import (EMAIL_RE, MailNotConfigured, MailSettings, OutlookUnavailable,
+                                     RawEmail, get_mail_client)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("project-manager")
-
-# nunca voltam para o navegador; a tela so sabe se estao preenchidos
-SECRET_KEYS = ("o365_client_secret", "imap_oauth_token", "imap_password")
 
 
 class IsoJSONProvider(DefaultJSONProvider):
@@ -69,27 +70,22 @@ def create_app(cfg: type[Config] = Config) -> Flask:
         return db.get_settings(cfg.MAIL_DEFAULTS)
 
     def public_settings() -> dict:
-        """Configuracao para a tela: segredos viram apenas '<chave>_set'."""
-        raw = mail_settings()
-        out = {k: v for k, v in raw.items() if k not in SECRET_KEYS}
-        out.update({f"{k}_set": bool(raw.get(k)) for k in SECRET_KEYS})
-        out["missing"] = MailSettings.from_dict(raw).missing()
+        out = dict(mail_settings())
+        out["missing"] = MailSettings.from_dict(out).missing()
         out["configured"] = not out["missing"]
+        # a leitura usa o Outlook do Windows (COM); em outro SO a tela avisa
+        out["outlook_available"] = sys.platform == "win32"
         return out
 
     def merged_settings(form: dict) -> dict:
-        """Salvo + formulario. Segredo em branco no formulario = manter o salvo."""
+        """Salvo + o que veio do formulario (so as chaves conhecidas)."""
         merged = mail_settings()
         for k in cfg.MAIL_DEFAULTS:
-            if k not in form:
-                continue
-            value = form[k]
-            if isinstance(value, bool):
-                value = "1" if value else "0"
-            value = "" if value is None else str(value).strip()
-            if k in SECRET_KEYS and not value:
-                continue
-            merged[k] = value
+            if k in form:
+                value = form[k]
+                if isinstance(value, bool):
+                    value = "1" if value else "0"
+                merged[k] = "" if value is None else str(value).strip()
         return merged
 
     def project_or_404(project_id: int) -> dict:
@@ -125,13 +121,11 @@ def create_app(cfg: type[Config] = Config) -> Flask:
     def api_save_settings():
         form = request.get_json(silent=True) or {}
         merged = merged_settings(form)
-        if not EMAIL_RE.match(merged.get("mailbox", "")):
+        merged["mailbox"] = merged.get("mailbox", "").lower()
+        if not EMAIL_RE.match(merged["mailbox"]):
             return jsonify(error="Informe um e-mail do Outlook válido."), 400
-        if merged.get("backend") not in ("o365", "imap"):
-            return jsonify(error="Método de conexão inválido."), 400
-        for k in ("fetch_limit", "imap_port"):
-            if not str(merged.get(k, "")).isdigit():
-                return jsonify(error=f"Valor numérico inválido em {k}."), 400
+        if not str(merged.get("fetch_limit", "")).isdigit():
+            return jsonify(error="Valor numérico inválido em fetch_limit."), 400
         db.save_settings(merged)
         return jsonify(public_settings())
 
@@ -140,12 +134,21 @@ def create_app(cfg: type[Config] = Config) -> Flask:
         settings = MailSettings.from_dict(merged_settings(request.get_json(silent=True) or {}))
         try:
             message = get_mail_client(settings).test()
-        except MailNotConfigured as exc:
+        except (MailNotConfigured, OutlookUnavailable) as exc:
             return jsonify(ok=False, error=str(exc)), 400
-        except Exception as exc:  # noqa: BLE001 - erro de rede/credencial volta para a tela
+        except Exception as exc:  # noqa: BLE001 - erro do Outlook/COM volta para a tela
             log.exception("Teste de conexao com o Outlook falhou")
             return jsonify(ok=False, error=f"Não conectou: {exc}"), 502
         return jsonify(ok=True, message=message)
+
+    @app.get("/api/outlook/categories")
+    def api_categories():
+        """Sempre 200: sem Outlook a tela so fica sem sugestoes e aceita texto livre."""
+        try:
+            names = get_mail_client(MailSettings.from_dict(mail_settings())).categories()
+            return jsonify(categories=names)
+        except Exception as exc:  # noqa: BLE001
+            return jsonify(categories=[], warning=str(exc))
 
     # --------------------------------------------------------------------- API
     @app.get("/api/projects")
@@ -158,7 +161,7 @@ def create_app(cfg: type[Config] = Config) -> Flask:
         name = (data.get("name") or "").strip()
         tag = (data.get("outlook_folder_or_tag") or "").strip()
         if not name or not tag:
-            return jsonify(error="Informe nome e tag/pasta do Outlook."), 400
+            return jsonify(error="Informe o nome e a categoria do Outlook."), 400
         pid = db.create_project(name, (data.get("description") or "").strip(), tag)
         return jsonify(db.get_project(pid)), 201
 
@@ -183,6 +186,8 @@ def create_app(cfg: type[Config] = Config) -> Flask:
             raw_emails = client.fetch(project["outlook_folder_or_tag"])
         except MailNotConfigured as exc:
             return jsonify(error=str(exc), needs_settings=True), 400
+        except OutlookUnavailable as exc:
+            return jsonify(error=str(exc)), 400
         except Exception as exc:  # noqa: BLE001 - erro de rede/credencial volta para a tela
             log.exception("Falha ao ler a caixa de correio")
             return jsonify(error=f"Falha ao ler a caixa de correio: {exc}"), 502
