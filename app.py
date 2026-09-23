@@ -10,9 +10,10 @@ API (JSON):
     PUT  /api/settings                         salva o e-mail da caixa
     POST /api/settings/test                    testa a conexao (com o que esta no formulario)
     GET  /api/outlook/categories               categorias do Outlook (sugestoes do cadastro)
+    GET  /api/people                           remetentes ja vistos (sugestoes do projeto "pessoa")
     GET  /api/projects                         lista projetos
-    POST /api/projects                         cria projeto {name, description, outlook_folder_or_tag}
-                                               (outlook_folder_or_tag = categoria do Outlook)
+    POST /api/projects                         cria projeto {name, description, source_type, outlook_folder_or_tag}
+                                               category -> categoria do Outlook; person -> e-mail da pessoa
     GET  /api/projects/<id>/dashboard?days=30  KPIs, series, remetentes, alertas, palavras-chave
     GET  /api/projects/<id>/emails             e-mails processados (resumo + original)
     POST /api/projects/<id>/sync               busca no Outlook e processa os novos
@@ -150,6 +151,10 @@ def create_app(cfg: type[Config] = Config) -> Flask:
         except Exception as exc:  # noqa: BLE001
             return jsonify(categories=[], warning=str(exc))
 
+    @app.get("/api/people")
+    def api_people():
+        return jsonify(db.list_people())
+
     # --------------------------------------------------------------------- API
     @app.get("/api/projects")
     def api_projects():
@@ -159,10 +164,17 @@ def create_app(cfg: type[Config] = Config) -> Flask:
     def api_create_project():
         data = request.get_json(silent=True) or {}
         name = (data.get("name") or "").strip()
-        tag = (data.get("outlook_folder_or_tag") or "").strip()
-        if not name or not tag:
+        source_type = (data.get("source_type") or "category").strip()
+        value = (data.get("outlook_folder_or_tag") or "").strip()
+        if source_type not in ("category", "person"):
+            return jsonify(error="Tipo de projeto inválido."), 400
+        if source_type == "person":
+            value = value.lower()
+            if not EMAIL_RE.match(value):
+                return jsonify(error="Informe o e-mail da pessoa."), 400
+        if not name or not value:
             return jsonify(error="Informe o nome e a categoria do Outlook."), 400
-        pid = db.create_project(name, (data.get("description") or "").strip(), tag)
+        pid = db.create_project(name, (data.get("description") or "").strip(), value, source_type)
         return jsonify(db.get_project(pid)), 201
 
     @app.get("/api/projects/<int:project_id>/dashboard")
@@ -183,7 +195,7 @@ def create_app(cfg: type[Config] = Config) -> Flask:
         project = project_or_404(project_id)
         try:
             client = get_mail_client(MailSettings.from_dict(mail_settings()))
-            raw_emails = client.fetch(project["outlook_folder_or_tag"])
+            raw_emails = client.fetch(project["outlook_folder_or_tag"], project.get("source_type") or "category")
         except MailNotConfigured as exc:
             return jsonify(error=str(exc), needs_settings=True), 400
         except OutlookUnavailable as exc:

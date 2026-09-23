@@ -3,7 +3,9 @@ Camada de dados em DuckDB.
 
 Tabelas (nomes do enunciado):
     AppSetting (key, value)   -- conexao com o Outlook definida na tela
-    Project  (id, name, description, outlook_folder_or_tag, created_at)
+    Project  (id, name, description, outlook_folder_or_tag, source_type, created_at)
+             source_type 'category' -> outlook_folder_or_tag = categoria do Outlook
+             source_type 'person'   -> outlook_folder_or_tag = e-mail da pessoa
     EmailLog (id, project_id, message_id, subject, sender, sender_email,
               date_received, raw_body, clean_body, clean_summary,
               urgency_score, urgency_level, analysis_json, processed_at)
@@ -36,14 +38,15 @@ CREATE TABLE IF NOT EXISTS Project (
     id                    INTEGER PRIMARY KEY DEFAULT nextval('seq_project'),
     name                  VARCHAR NOT NULL,
     description           VARCHAR,
-    outlook_folder_or_tag VARCHAR NOT NULL,   -- "[PROJ-01]" (tag no assunto) ou nome de pasta
+    outlook_folder_or_tag VARCHAR NOT NULL,   -- categoria do Outlook ou e-mail da pessoa
+    source_type           VARCHAR DEFAULT 'category',   -- category | person
     created_at            TIMESTAMP DEFAULT current_timestamp
 );
 
 CREATE TABLE IF NOT EXISTS EmailLog (
     id            INTEGER PRIMARY KEY DEFAULT nextval('seq_emaillog'),
     project_id    INTEGER NOT NULL REFERENCES Project(id),
-    message_id    VARCHAR UNIQUE,             -- id do Outlook/IMAP; evita reprocessar
+    message_id    VARCHAR,                    -- id do Outlook; evita reprocessar no MESMO projeto
     subject       VARCHAR,
     sender        VARCHAR,                    -- nome de exibicao
     sender_email  VARCHAR,
@@ -54,7 +57,9 @@ CREATE TABLE IF NOT EXISTS EmailLog (
     urgency_score INTEGER DEFAULT 0,
     urgency_level VARCHAR DEFAULT 'baixa',    -- baixa | media | alta | critica
     analysis_json VARCHAR,                    -- palavras-chave, acoes, detalhamento da nota
-    processed_at  TIMESTAMP DEFAULT current_timestamp
+    processed_at  TIMESTAMP DEFAULT current_timestamp,
+    -- o mesmo e-mail pode estar em varios projetos (categoria + pessoa)
+    UNIQUE (project_id, message_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_email_project_date ON EmailLog(project_id, date_received);
@@ -72,6 +77,34 @@ class Database:
         self._conn = duckdb.connect(path)
         self._write_lock = threading.Lock()
         self._conn.execute(SCHEMA)
+        self._migrate()
+
+    def _migrate(self) -> None:
+        """Atualiza bancos criados por versoes anteriores (idempotente)."""
+        c = self._conn
+        c.execute("ALTER TABLE Project ADD COLUMN IF NOT EXISTS source_type VARCHAR DEFAULT 'category'")
+        c.execute("UPDATE Project SET source_type = 'category' WHERE source_type IS NULL")
+        # v1 tinha UNIQUE(message_id) global: um e-mail so entrava no 1o projeto.
+        # DuckDB nao remove constraint com ALTER, entao a tabela e recriada.
+        old_unique = c.execute("""
+            SELECT count(*) FROM duckdb_constraints()
+            WHERE table_name = 'EmailLog' AND constraint_type = 'UNIQUE'
+              AND constraint_column_names = ['message_id']
+        """).fetchone()[0]
+        if not old_unique:
+            return
+        c.execute("BEGIN TRANSACTION")
+        try:
+            c.execute("CREATE TABLE EmailLog_v2 AS SELECT * FROM EmailLog")
+            c.execute("DROP INDEX IF EXISTS idx_email_project_date")
+            c.execute("DROP TABLE EmailLog")
+            c.execute(SCHEMA)  # recria EmailLog com UNIQUE(project_id, message_id)
+            c.execute("INSERT INTO EmailLog SELECT * FROM EmailLog_v2")
+            c.execute("DROP TABLE EmailLog_v2")
+            c.execute("COMMIT")
+        except Exception:
+            c.execute("ROLLBACK")
+            raise
 
     @contextmanager
     def cursor(self, write: bool = False):
@@ -107,7 +140,7 @@ class Database:
     def list_projects(self) -> list[dict]:
         with self.cursor() as cur:
             cur.execute("""
-                SELECT p.id, p.name, p.description, p.outlook_folder_or_tag,
+                SELECT p.id, p.name, p.description, p.outlook_folder_or_tag, p.source_type,
                        count(e.id) AS email_count,
                        count(e.id) FILTER (WHERE e.urgency_level IN ('alta','critica')) AS urgent_count,
                        max(e.date_received) AS last_email
@@ -122,13 +155,25 @@ class Database:
             rows = self._rows(cur)
             return rows[0] if rows else None
 
-    def create_project(self, name: str, description: str, folder_or_tag: str) -> int:
+    def create_project(self, name: str, description: str, folder_or_tag: str,
+                       source_type: str = "category") -> int:
         with self.cursor(write=True) as cur:
             cur.execute(
-                "INSERT INTO Project (name, description, outlook_folder_or_tag) VALUES (?, ?, ?) RETURNING id",
-                [name, description, folder_or_tag],
+                "INSERT INTO Project (name, description, outlook_folder_or_tag, source_type) "
+                "VALUES (?, ?, ?, ?) RETURNING id",
+                [name, description, folder_or_tag, source_type],
             )
             return cur.fetchone()[0]
+
+    def list_people(self, limit: int = 50) -> list[dict]:
+        """Remetentes ja vistos (sugestoes do projeto "pessoa"), mais ativos primeiro."""
+        with self.cursor() as cur:
+            cur.execute("""
+                SELECT any_value(sender) AS name, sender_email AS email, count(*) AS count
+                FROM EmailLog WHERE sender_email <> ''
+                GROUP BY sender_email ORDER BY count DESC, name LIMIT ?
+            """, [limit])
+            return self._rows(cur)
 
     # ----------------------------------------------------------------- EmailLog
     def ingest(self, project_id: int, raw: RawEmail) -> int | None:
@@ -136,14 +181,9 @@ class Database:
         analysis = analyze_email(raw.subject, raw.body, raw.sender, raw.date, raw.importance)
         return self.insert_email(project_id, raw.message_id, raw.subject, raw.body, analysis)
 
-    def email_exists(self, message_id: str) -> bool:
-        with self.cursor() as cur:
-            cur.execute("SELECT 1 FROM EmailLog WHERE message_id = ?", [message_id])
-            return cur.fetchone() is not None
-
     def insert_email(self, project_id: int, message_id: str | None, subject: str,
                      raw_body: str, analysis: EmailAnalysis) -> int | None:
-        """Grava o e-mail analisado. Retorna None se o message_id ja existia."""
+        """Grava o e-mail analisado. Retorna None se ja existia NESTE projeto."""
         payload = {
             "keywords": [{"word": w, "count": c} for w, c in analysis.keywords],
             "action_items": [a.__dict__ for a in analysis.action_items],
@@ -151,7 +191,8 @@ class Database:
         }
         with self.cursor(write=True) as cur:
             if message_id:
-                cur.execute("SELECT id, sender, sender_email FROM EmailLog WHERE message_id = ?", [message_id])
+                cur.execute("SELECT id, sender, sender_email FROM EmailLog WHERE project_id = ? AND message_id = ?",
+                            [project_id, message_id])
                 row = cur.fetchone()
                 if row:
                     # ja processado; so conserta remetente gravado como "Desconhecido"

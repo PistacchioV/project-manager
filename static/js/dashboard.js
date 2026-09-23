@@ -154,7 +154,7 @@
 
   function renderHero() {
     const p = state.dashboard.project;
-    $('#heroTag').textContent = `Categoria do Outlook · ${p.outlook_folder_or_tag}`;
+    $('#heroTag').textContent = `${p.source_type === 'person' ? 'Pessoa' : 'Categoria do Outlook'} · ${p.outlook_folder_or_tag}`;
     $('#heroTitle').textContent = p.name;
     $('#heroDesc').textContent = p.description || 'Sem descrição.';
     document.title = `${p.name} | Project Manager`;
@@ -165,7 +165,7 @@
     const tabs = state.projects.map((p, i) => `
       <button type="button" class="project-tab p-6 md:p-8 group card-hover ${p.id === state.projectId ? 'is-active' : ''}" data-project="${p.id}">
         <span class="relative eyebrow block mb-2 ${p.id === state.projectId ? '!text-accent' : ''}">Projeto ${String(i + 1).padStart(2, '0')}</span>
-        <span class="relative chip mb-3 !text-[11px]"><iconify-icon icon="solar:tag-bold-duotone" class="text-accent"></iconify-icon>${esc(p.outlook_folder_or_tag)}</span>
+        <span class="relative chip mb-3 !text-[11px]"><iconify-icon icon="${p.source_type === 'person' ? 'solar:user-bold-duotone' : 'solar:tag-bold-duotone'}" class="text-accent"></iconify-icon>${esc(p.outlook_folder_or_tag)}</span>
         <span class="relative block text-xl font-medium tracking-tight text-fg mb-1 transition-colors group-hover:text-accent">${esc(p.name)}</span>
         <span class="relative block text-sm text-muted">${p.email_count} e-mails · <span class="${p.urgent_count ? 'text-accent' : ''}">${p.urgent_count} urgentes</span></span>
       </button>`).join('');
@@ -510,19 +510,44 @@
 
   // ----------------------------------------------- novo projeto (categoria)
   // Sugere as categorias que ja existem no Outlook; sem Outlook, texto livre.
+  // Tipo do projeto: so o painel ativo fica habilitado (o oculto nao valida)
+  function setSource(type) {
+    const form = $('#formProject');
+    form.elements.source_type.value = type;
+    $$('#sourceSeg [data-source]').forEach((b) => {
+      const on = b.dataset.source === type;
+      b.classList.toggle('is-active', on);
+      b.setAttribute('aria-checked', String(on));
+    });
+    $$('[data-source-panel]').forEach((panel) => {
+      const on = panel.dataset.sourcePanel === type;
+      panel.classList.toggle('hidden', !on);
+      panel.querySelectorAll('input').forEach((i) => { i.disabled = !on; });
+    });
+    form.elements.name.placeholder = type === 'person' ? 'Souza, Ana' : 'Migração ERP';
+  }
+
+  const suggestionChip = (attr, value, label, extra = '') =>
+    `<button type="button" class="chip hover:!text-accent hover:!border-accent/50 transition-colors" ${attr}="${esc(value)}" ${extra}>${label}</button>`;
+
   async function openProjectDialog() {
     $('#formProject').reset();
+    setSource('category');
     $('#categoryChips').innerHTML = '';
+    $('#peopleChips').innerHTML = '';
     $('#dlgProject').showModal();
     if (useMock) return;
-    try {
-      const { categories = [] } = await api('/api/outlook/categories');
-      $('#categoryList').innerHTML = categories.map((c) => `<option value="${esc(c)}"></option>`).join('');
-      $('#categoryChips').innerHTML = categories.map((c) =>
-        `<button type="button" class="chip hover:!text-accent hover:!border-accent/50 transition-colors" data-category="${esc(c)}">${esc(c)}</button>`).join('');
-    } catch (err) {
-      console.warn(err);
-    }
+    const [cats, people] = await Promise.all([
+      api('/api/outlook/categories').catch(() => ({})),
+      api('/api/people').catch(() => []),
+    ]);
+    const categories = cats.categories || [];
+    $('#categoryList').innerHTML = categories.map((c) => `<option value="${esc(c)}"></option>`).join('');
+    $('#categoryChips').innerHTML = categories.map((c) => suggestionChip('data-category', c, esc(c))).join('');
+    // pessoas que ja apareceram como remetente, mais ativas primeiro
+    $('#peopleList').innerHTML = people.map((p) => `<option value="${esc(p.email)}">${esc(p.name)}</option>`).join('');
+    $('#peopleChips').innerHTML = people.slice(0, 8).map((p) =>
+      suggestionChip('data-person', p.email, `${esc(p.name)} <b>${p.count}</b>`, `data-person-name="${esc(p.name)}" title="${esc(p.email)}"`)).join('');
   }
 
   // ---------------------------------------------------------------- tema
@@ -641,11 +666,22 @@
 
     $('#btnPaste').addEventListener('click', () => $('#dlgPaste').showModal());
 
+    $$('#sourceSeg [data-source]').forEach((b) => b.addEventListener('click', () => setSource(b.dataset.source)));
+
     $('#categoryChips').addEventListener('click', (ev) => {
       const chip = ev.target.closest('[data-category]');
       if (!chip) return;
-      $('#formProject').elements.outlook_folder_or_tag.value = chip.dataset.category;
+      $('#formProject').elements.category.value = chip.dataset.category;
       $$('#categoryChips [data-category]').forEach((c) => c.classList.toggle('chip-accent', c === chip));
+    });
+
+    $('#peopleChips').addEventListener('click', (ev) => {
+      const chip = ev.target.closest('[data-person]');
+      if (!chip) return;
+      const form = $('#formProject');
+      form.elements.person_email.value = chip.dataset.person;
+      if (!form.elements.name.value.trim()) form.elements.name.value = chip.dataset.personName;
+      $$('#peopleChips [data-person]').forEach((c) => c.classList.toggle('chip-accent', c === chip));
     });
 
     $('#dlgPaste').addEventListener('close', async () => {
@@ -669,7 +705,14 @@
     $('#dlgProject').addEventListener('close', async () => {
       const dlg = $('#dlgProject');
       if (dlg.returnValue !== 'ok') return;
-      const data = Object.fromEntries(new FormData($('#formProject')));
+      const form = $('#formProject');
+      const type = form.elements.source_type.value;
+      const data = {
+        name: form.elements.name.value.trim(),
+        description: form.elements.description.value.trim(),
+        source_type: type,
+        outlook_folder_or_tag: (type === 'person' ? form.elements.person_email : form.elements.category).value.trim(),
+      };
       if (useMock) { toast('Modo mock: criação desativada.'); return; }
       try {
         const p = await api('/api/projects', { method: 'POST', body: JSON.stringify(data) });

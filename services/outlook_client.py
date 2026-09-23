@@ -7,10 +7,14 @@ Outlook aberto no Windows a caixa pelo e-mail
 usa o acesso que o usuario ja tem, seja a caixa propria ou uma compartilhada
 adicionada ao perfil. Por isso so o e-mail e configurado na tela.
 
-Regra de busca: cada projeto aponta para uma CATEGORIA do Outlook (as
-etiquetas coloridas, campo ``outlook_folder_or_tag`` do projeto). Entram os
-e-mails, lidos ou nao, marcados com essa categoria na Caixa de Entrada e em
-qualquer subpasta dela.
+Regra de busca (Caixa de Entrada e todas as subpastas, lidos ou nao). O
+projeto aponta para uma fonte (``source_type``) e um valor
+(``outlook_folder_or_tag``):
+
+* ``category`` - e-mails marcados com essa CATEGORIA do Outlook.
+* ``person``   - e-mails que essa PESSOA enviou, ou em que voce e ela estao
+  juntos em Para/Cc. "Voce" = a caixa configurada + o usuario logado no
+  Outlook. Olha so os ultimos ``lookback_days`` dias (padrao 90).
 
 Windows-only. Fora do Windows (ou sem pywin32) levanta ``OutlookUnavailable``
 com o motivo, e a tela mostra a mensagem.
@@ -21,7 +25,7 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 log = logging.getLogger(__name__)
 
@@ -34,6 +38,9 @@ OL_IMPORTANCE_HIGH = 2
 DASL_CATEGORIES = "urn:schemas-microsoft-com:office:office#Keywords"
 PR_INTERNET_MESSAGE_ID = "http://schemas.microsoft.com/mapi/proptag/0x1035001F"
 PR_SENDER_SMTP_ADDRESS = "http://schemas.microsoft.com/mapi/proptag/0x5D01001F"
+PR_SMTP_ADDRESS = "http://schemas.microsoft.com/mapi/proptag/0x39FE001F"
+DASL_DATE_RECEIVED = "urn:schemas:httpmail:datereceived"
+OL_TO, OL_CC = 1, 2            # Recipient.Type (3 = Cco, que nao conta)
 
 
 class MailNotConfigured(RuntimeError):
@@ -59,6 +66,7 @@ class MailSettings:
     mailbox: str = ""
     fetch_limit: int = 50
     mark_as_read: bool = False
+    lookback_days: int = 90
 
     @classmethod
     def from_dict(cls, d: dict) -> "MailSettings":
@@ -66,6 +74,7 @@ class MailSettings:
             mailbox=(d.get("mailbox") or "").strip(),
             fetch_limit=int(d.get("fetch_limit") or 50),
             mark_as_read=str(d.get("mark_as_read")) in ("1", "true", "True"),
+            lookback_days=int(d.get("lookback_days") or 90),
         )
 
     def missing(self) -> list[str]:
@@ -130,6 +139,50 @@ def _smtp_sender(msg) -> str:
     return addr if "@" in addr else ""
 
 
+def _smtp_of_entry(entry, fallback_address="", accessor=None) -> str:
+    """SMTP de um AddressEntry/Recipient do Exchange (mesma ordem de _smtp_sender)."""
+    try:
+        user = entry.GetExchangeUser() if entry is not None else None
+        if user is not None and user.PrimarySmtpAddress:
+            return str(user.PrimarySmtpAddress)
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        if accessor is not None:
+            smtp = accessor.GetProperty(PR_SMTP_ADDRESS)
+            if smtp and "@" in str(smtp):
+                return str(smtp)
+    except Exception:  # noqa: BLE001
+        pass
+    addr = str(fallback_address or "")
+    return addr if "@" in addr else ""
+
+
+def _to_cc_smtp(msg) -> set[str]:
+    """E-mails (minusculos) de quem esta em Para ou Cc. Cco nao conta."""
+    out = set()
+    rcpts = msg.Recipients
+    for i in range(1, rcpts.Count + 1):
+        r = rcpts.Item(i)
+        try:
+            if r.Type not in (OL_TO, OL_CC):
+                continue
+            smtp = _smtp_of_entry(r.AddressEntry, r.Address, r.PropertyAccessor)
+            if smtp:
+                out.add(smtp.lower())
+        except Exception:  # noqa: BLE001 - destinatario ruim nao derruba a mensagem
+            continue
+    return out
+
+
+def person_matches(sender: str, to_cc: set[str], person: str, me: set[str]) -> bool:
+    """Regra do projeto "pessoa": ela enviou, OU ela e eu estamos juntos em Para/Cc."""
+    person = person.strip().lower()
+    if sender.strip().lower() == person:
+        return True
+    return person in to_cc and bool(me & to_cc)
+
+
 class OutlookMailClient:
     def __init__(self, s: MailSettings):
         self.s = s
@@ -189,20 +242,53 @@ class OutlookMailClient:
             com.CoUninitialize()
 
     # -------------------------------------------------------------- leitura
-    def fetch(self, category: str) -> list[RawEmail]:
-        category = (category or "").strip()
+    def _canonical_category(self, inbox, category: str) -> str:
+        """Grafia exata da lista mestra ("projeto erp" -> "Projeto ERP")."""
+        try:
+            cats = inbox.Session.Categories
+            for i in range(1, cats.Count + 1):
+                if str(cats.Item(i).Name).strip().lower() == category.lower():
+                    return str(cats.Item(i).Name)
+        except Exception:  # noqa: BLE001 - sem lista mestra, usa o texto digitado
+            pass
+        return category
+
+    def _my_addresses(self, inbox) -> set[str]:
+        """'Eu' = a caixa configurada + o usuario logado no Outlook (se for outra caixa)."""
+        me = {self.s.mailbox.lower()}
+        try:
+            cu = inbox.Session.CurrentUser
+            smtp = _smtp_of_entry(cu.AddressEntry, cu.Address)
+            if smtp:
+                me.add(smtp.lower())
+        except Exception:  # noqa: BLE001
+            pass
+        return me
+
+    def fetch(self, value: str, source_type: str = "category") -> list[RawEmail]:
+        """E-mails da fonte do projeto: categoria do Outlook ou pessoa (e-mail)."""
+        value = (value or "").strip()
         com, inbox = self._open()
         try:
-            # grafia exata da lista mestra ("projeto erp" -> "Projeto ERP")
-            try:
-                cats = inbox.Session.Categories
-                for i in range(1, cats.Count + 1):
-                    if str(cats.Item(i).Name).strip().lower() == category.lower():
-                        category = str(cats.Item(i).Name)
-                        break
-            except Exception:  # noqa: BLE001 - sem lista mestra, usa o texto digitado
-                pass
-            restriction = f"@SQL=\"{DASL_CATEGORIES}\" = '{category.replace(chr(39), chr(39) * 2)}'"
+            if source_type == "person":
+                person = value.lower()
+                me = self._my_addresses(inbox)
+                since = datetime.now(timezone.utc) - timedelta(days=self.s.lookback_days)
+                # remetente/destinatario do Exchange nao filtra bem no MAPI (X500);
+                # o pre-filtro e a janela de datas, e a regra roda em Python
+                restriction = f"@SQL=\"{DASL_DATE_RECEIVED}\" >= '{since:%Y-%m-%d %H:%M}'"
+
+                def keep(msg) -> bool:
+                    if _smtp_sender(msg).lower() == person:
+                        return True
+                    return person_matches("", _to_cc_smtp(msg), person, me)
+            else:
+                category = self._canonical_category(inbox, value)
+                restriction = f"@SQL=\"{DASL_CATEGORIES}\" = '{category.replace(chr(39), chr(39) * 2)}'"
+
+                def keep(msg) -> bool:
+                    return has_category(str(msg.Categories or ""), category)
+
             found = []
             for folder in _walk(inbox):
                 items = folder.Items
@@ -217,7 +303,7 @@ class OutlookMailClient:
                         break
                     try:
                         # o teste em Python e o que decide (vale tambem sem Restrict)
-                        if msg.Class != OL_MAIL_ITEM or not has_category(str(msg.Categories or ""), category):
+                        if msg.Class != OL_MAIL_ITEM or not keep(msg):
                             continue
                         found.append(msg)
                         n += 1

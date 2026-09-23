@@ -38,4 +38,6 @@ class Config:
         "mailbox": os.getenv("PM_MAILBOX", ""),
         "fetch_limit": os.getenv("PM_MAIL_FETCH_LIMIT", "50"),
         "mark_as_read": "1" if _bool("PM_MAIL_MARK_AS_READ", False) else "0",
+        # projetos do tipo "pessoa": quantos dias para tras olhar
+        "lookback_days": os.getenv("PM_MAIL_LOOKBACK_DAYS", "90"),
     }

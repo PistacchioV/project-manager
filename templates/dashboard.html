@@ -252,7 +252,7 @@
         <iconify-icon icon="solar:add-circle-bold-duotone" width="22"></iconify-icon>
       </span>
       <span class="block text-2xl font-medium tracking-tight text-fg mb-2">Criar o primeiro projeto</span>
-      <span class="block text-sm text-muted leading-relaxed max-w-sm">Escolha a categoria do Outlook que marca os e-mails do projeto. Depois clique em Sincronizar Outlook.</span>
+      <span class="block text-sm text-muted leading-relaxed max-w-sm">Acompanhe uma categoria do Outlook ou uma pessoa específica. Depois clique em Sincronizar Outlook.</span>
     </button>
   </div>
 </section>
@@ -310,18 +310,46 @@
   <form method="dialog" id="formProject" class="p-8 space-y-5">
     <div>
       <p class="eyebrow text-accent mb-2">Novo projeto</p>
-      <h3 class="text-2xl font-medium tracking-tight text-fg">Conectar uma inbox</h3>
+      <h3 class="text-2xl font-medium tracking-tight text-fg">O que acompanhar?</h3>
     </div>
+
+    <div class="space-y-3">
+      <div class="seg" id="sourceSeg" role="radiogroup" aria-label="Tipo de projeto">
+        <button type="button" data-source="category" role="radio" class="is-active" aria-checked="true">
+          <iconify-icon icon="solar:tag-bold-duotone" class="align-[-2px] mr-1"></iconify-icon>Categoria do Outlook</button>
+        <button type="button" data-source="person" role="radio" aria-checked="false">
+          <iconify-icon icon="solar:user-bold-duotone" class="align-[-2px] mr-1"></iconify-icon>Pessoa</button>
+      </div>
+      <input type="hidden" name="source_type" value="category"/>
+    </div>
+
     <label class="block space-y-2"><span class="eyebrow">Nome</span>
       <input name="name" required class="field" placeholder="Migração ERP"/></label>
     <label class="block space-y-2"><span class="eyebrow">Descrição</span>
       <input name="description" class="field" placeholder="Opcional"/></label>
-    <label class="block space-y-2"><span class="eyebrow">Categoria do Outlook</span>
-      <input name="outlook_folder_or_tag" required class="field" list="categoryList" placeholder="Ex.: Projeto ERP" autocomplete="off"/>
-      <datalist id="categoryList"></datalist>
-      <span class="block text-xs text-subtle">Entram no projeto os e-mails marcados com esta categoria, na Caixa de Entrada e nas subpastas.</span>
-    </label>
-    <div id="categoryChips" class="flex flex-wrap gap-1.5 -mt-2"></div>
+
+    <div data-source-panel="category" class="space-y-3">
+      <label class="block space-y-2"><span class="eyebrow">Categoria do Outlook</span>
+        <input name="category" required class="field" list="categoryList" placeholder="Ex.: Projeto ERP" autocomplete="off"/>
+        <datalist id="categoryList"></datalist>
+        <span class="block text-xs text-subtle">Entram os e-mails marcados com esta categoria, na Caixa de Entrada e nas subpastas.</span>
+      </label>
+      <div id="categoryChips" class="flex flex-wrap gap-1.5"></div>
+    </div>
+
+    <div data-source-panel="person" class="space-y-3 hidden">
+      <label class="block space-y-2"><span class="eyebrow">E-mail da pessoa</span>
+        <input name="person_email" type="email" required disabled class="field" list="peopleList" placeholder="ana.souza@empresa.com" autocomplete="off"/>
+        <datalist id="peopleList"></datalist>
+      </label>
+      <ul class="text-xs text-subtle space-y-1.5 leading-relaxed">
+        <li class="flex gap-2"><iconify-icon icon="solar:letter-bold-duotone" class="text-accent mt-0.5 shrink-0"></iconify-icon><span>E-mails que <b class="text-ink font-medium">ela enviou</b>.</span></li>
+        <li class="flex gap-2"><iconify-icon icon="solar:users-group-rounded-bold-duotone" class="text-accent mt-0.5 shrink-0"></iconify-icon><span>E-mails em que <b class="text-ink font-medium">você e ela</b> estão em Para ou Cc. "Você" é a caixa configurada e o seu usuário do Outlook.</span></li>
+        <li class="flex gap-2"><iconify-icon icon="solar:calendar-bold-duotone" class="text-accent mt-0.5 shrink-0"></iconify-icon><span>Olha os últimos 90 dias da Caixa de Entrada e das subpastas.</span></li>
+      </ul>
+      <div id="peopleChips" class="flex flex-wrap gap-1.5"></div>
+    </div>
+
     <div class="flex justify-end gap-3 pt-2">
       <button value="cancel" formnovalidate class="btn btn-ghost">Cancelar</button>
       <button value="ok" class="btn btn-primary">Criar projeto</button>

@@ -1,6 +1,6 @@
 # Project Manager: inbox de projetos
 
-Sistema de gerenciamento de projetos que lê a caixa do **Outlook**, separa os e-mails de cada projeto pela **categoria do Outlook** e gera **resumos, palavras-chave, sentenças de ação e nível de urgência só com lógica de código tradicional**: regex, parsing de HTML da biblioteca padrão, contagem de palavras e uma tabela de pesos.
+Sistema de gerenciamento de projetos que lê a caixa do **Outlook**, separa os e-mails de cada projeto por **categoria do Outlook** ou por **pessoa** e gera **resumos, palavras-chave, sentenças de ação e nível de urgência só com lógica de código tradicional**: regex, parsing de HTML da biblioteca padrão, contagem de palavras e uma tabela de pesos.
 
 > **Sem IA.** Não há LLM, OpenAI, LangChain nem biblioteca de NLP. Todo o motor está em [`services/email_parser.py`](services/email_parser.py) e pode ser auditado linha a linha.
 
@@ -25,7 +25,7 @@ python app.py            # http://127.0.0.1:5080/dashboard
 
 O app começa **vazio**: sem projetos, sem e-mails e sem dados de exemplo. Na primeira tela:
 1. Clique na **engrenagem** (canto superior direito) e informe o **e-mail do Outlook** que será lido. Use **Testar conexão** e depois **Salvar**.
-2. Crie um projeto e escolha a **categoria do Outlook** dele. A tela sugere as categorias que já existem no seu Outlook.
+2. Crie um projeto do tipo **Categoria do Outlook** (a tela sugere as que já existem) ou do tipo **Pessoa** (e-mail de alguém; a tela sugere os remetentes já vistos).
 3. Clique em **Sincronizar Outlook**.
 
 Testes: `python -m unittest discover -s tests`
@@ -92,10 +92,10 @@ Faixas: **0–2 baixa · 3–6 média · 7–11 alta · 12+ crítica**. A compos
 ## Banco (DuckDB)
 
 - **`AppSetting`**: `key, value`. Guarda o e-mail da caixa salvo pela tela.
-- **`Project`**: `id, name, description, outlook_folder_or_tag, created_at`
+- **`Project`**: `id, name, description, outlook_folder_or_tag, source_type, created_at`. `source_type` é `category` (o valor é a categoria) ou `person` (o valor é o e-mail da pessoa).
 - **`EmailLog`**: `id, project_id, message_id (único), subject, sender, sender_email, date_received (UTC), raw_body, clean_body, clean_summary, urgency_score, urgency_level, analysis_json, processed_at`
 
-`message_id` impede reprocessar o mesmo e-mail a cada sincronização. `analysis_json` guarda palavras-chave, sentenças de ação e a composição da nota.
+`UNIQUE(project_id, message_id)` impede reprocessar o mesmo e-mail no mesmo projeto, mas deixa o e-mail entrar em mais de um projeto (ex.: categoria ERP e pessoa Ana). Bancos da versão anterior são migrados automaticamente na abertura. `analysis_json` guarda palavras-chave, sentenças de ação e a composição da nota.
 
 ## Conectar o Outlook
 
@@ -106,7 +106,12 @@ O modelo é o mesmo do OTC Tracker: o app lê pelo **Outlook aberto no Windows**
 - Em macOS/Linux a tela abre normalmente, mas **Testar conexão** e **Sincronizar** avisam que a leitura exige Windows.
 - O e-mail também pode vir do `.env` (`PM_MAILBOX`). O que for salvo pela tela tem prioridade.
 
-**Regra de busca: categorias.** Cada projeto aponta para uma categoria do Outlook, gravada em `Project.outlook_folder_or_tag`. Na sincronização entram os e-mails, lidos ou não, que tenham essa categoria, na Caixa de Entrada e em todas as subpastas dela. Assim, um e-mail movido por regra continua sendo encontrado. Um e-mail com várias categorias entra em todos os projetos correspondentes. O nome é comparado sem diferenciar maiúsculas e minúsculas, e itens que não são e-mail (convites, relatórios de entrega) são ignorados. Por padrão os e-mails **não** são marcados como lidos (`PM_MAIL_MARK_AS_READ=0`).
+**Regra de busca.** A busca olha a Caixa de Entrada e todas as subpastas, em e-mails lidos ou não. Cada projeto é de um dos dois tipos:
+
+- **Categoria do Outlook:** entram os e-mails marcados com a categoria.
+- **Pessoa:** entram os e-mails que **ela enviou**, ou em que **você e ela** estão juntos em **Para/Cc** (Cco não conta). "Você" é a caixa configurada e o seu usuário do Outlook, o que cobre caixa compartilhada. A busca olha os últimos 90 dias (`PM_MAIL_LOOKBACK_DAYS`). Remetentes e destinatários internos do Exchange são convertidos para o e-mail normal antes da comparação.
+
+Como as subpastas entram, um e-mail movido por regra continua sendo encontrado. Um e-mail pode entrar em vários projetos, por exemplo pela categoria e pela pessoa. A categoria é comparada sem diferenciar maiúsculas e minúsculas, e itens que não são e-mail (convites, relatórios de entrega) são ignorados. Por padrão os e-mails **não** são marcados como lidos (`PM_MAIL_MARK_AS_READ=0`).
 
 ## API
 
@@ -117,7 +122,8 @@ O modelo é o mesmo do OTC Tracker: o app lê pelo **Outlook aberto no Windows**
 | POST | `/api/settings/test` | testa a conexão com os dados do formulário, sem salvar |
 | GET | `/api/projects` | projetos com contagem e urgentes |
 | GET | `/api/outlook/categories` | categorias do Outlook, sugeridas no cadastro |
-| POST | `/api/projects` | `{name, description, outlook_folder_or_tag}`, onde o último campo é a categoria |
+| GET | `/api/people` | remetentes já vistos, sugeridos no projeto do tipo pessoa |
+| POST | `/api/projects` | `{name, description, source_type, outlook_folder_or_tag}`: `category` + categoria, ou `person` + e-mail |
 | GET | `/api/projects/<id>/dashboard?days=30` | KPIs, volume diário/semanal, remetentes, alertas, palavras-chave |
 | GET | `/api/projects/<id>/emails` | e-mails com resumo, texto limpo e original |
 | POST | `/api/projects/<id>/sync` | lê o Outlook e processa os novos |
