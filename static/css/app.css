@@ -145,7 +145,9 @@ body {
 .card-hover { transition: background-color .2s; }
 .card-hover:hover { background: rgb(var(--line) / .025); }
 
-.project-tab { position: relative; text-align: left; cursor: pointer; }
+/* botao centraliza o conteudo na vertical por padrao; aqui tudo fica no topo,
+   alinhado entre cards de alturas diferentes (nome longo quebra em 2 linhas) */
+.project-tab { position: relative; text-align: left; cursor: pointer; display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-start; }
 .project-tab.is-active { background: rgb(var(--panel)); }
 .project-tab.is-active::before { content: ""; position: absolute; inset: 0 0 auto 0; height: 2px; background: rgb(var(--accent-strong)); }
 .project-tab.is-active::after { content: ""; position: absolute; inset: 0; background: rgb(var(--accent) / .05); pointer-events: none; }

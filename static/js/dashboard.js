@@ -160,11 +160,18 @@
     document.title = `${p.name} | Project Manager`;
   }
 
+  // Tipo do item: "category" (projeto) ou "person" (pessoa); muda so os rotulos
+  const kindOf = (p) => (p && p.source_type === 'person' ? 'person' : 'category');
+  const isPerson = (p) => kindOf(p) === 'person';
+  const kindLabel = (p) => (isPerson(p) ? 'Pessoa' : 'Projeto');
+  const created = (p) => (isPerson(p) ? `Pessoa “${p.name}” adicionada.` : `Projeto “${p.name}” criado.`);
+
   function renderProjectTabs() {
     const wrap = $('#projectTabs');
-    const tabs = state.projects.map((p, i) => `
-      <button type="button" class="project-tab p-6 md:p-8 group card-hover ${p.id === state.projectId ? 'is-active' : ''}" data-project="${p.id}">
-        <span class="relative eyebrow block mb-2 ${p.id === state.projectId ? '!text-accent' : ''}">Projeto ${String(i + 1).padStart(2, '0')}</span>
+    const seen = { category: 0, person: 0 };
+    const tabs = state.projects.map((p) => `
+      <button type="button" class="project-tab p-6 md:p-8 group card-hover flex flex-col items-start justify-start ${p.id === state.projectId ? 'is-active' : ''}" data-project="${p.id}">
+        <span class="relative eyebrow block mb-2 ${p.id === state.projectId ? '!text-accent' : ''}">${kindLabel(p)} ${String(++seen[kindOf(p)]).padStart(2, '0')}</span>
         <span class="relative chip mb-3 !text-[11px]"><iconify-icon icon="${p.source_type === 'person' ? 'solar:user-bold-duotone' : 'solar:tag-bold-duotone'}" class="text-accent"></iconify-icon>${esc(p.outlook_folder_or_tag)}</span>
         <span class="relative block text-xl font-medium tracking-tight text-fg mb-1 transition-colors group-hover:text-accent">${esc(p.name)}</span>
         <span class="relative block text-sm text-muted">${p.email_count} e-mails · <span class="${p.urgent_count ? 'text-accent' : ''}">${p.urgent_count} urgentes</span></span>
@@ -176,7 +183,7 @@
         </span>
         <span>
           <span class="eyebrow block mb-1">Adicionar</span>
-          <span class="block text-lg font-medium tracking-tight text-fg">Novo projeto</span>
+          <span class="block text-lg font-medium tracking-tight text-fg">Novo projeto ou pessoa</span>
         </span>
       </button>`;
   }
@@ -184,7 +191,7 @@
   function renderKpis() {
     const k = state.dashboard.kpis;
     const items = [
-      ['Total no projeto', k.total, 'solar:letter-bold-duotone'],
+      [`Total ${isPerson(state.dashboard.project) ? 'da pessoa' : 'no projeto'}`, k.total, 'solar:letter-bold-duotone'],
       ['Últimos 7 dias', k.last_7d, 'solar:calendar-bold-duotone'],
       ['Críticos', k.critical, 'solar:danger-triangle-bold-duotone', true],
       ['Stakeholders', k.senders, 'solar:users-group-rounded-bold-duotone'],
@@ -525,6 +532,9 @@
       panel.querySelectorAll('input').forEach((i) => { i.disabled = !on; });
     });
     form.elements.name.placeholder = type === 'person' ? 'Souza, Ana' : 'Migração ERP';
+    // o dialogo muda de "projeto" para "pessoa" junto com o tipo
+    $('#projectDlgEyebrow').textContent = type === 'person' ? 'Nova pessoa' : 'Novo projeto';
+    $('#projectDlgSubmit').textContent = type === 'person' ? 'Adicionar pessoa' : 'Criar projeto';
   }
 
   const suggestionChip = (attr, value, label, extra = '') =>
@@ -573,7 +583,7 @@
       if (ev.target.closest('#btnNewProject')) { openProjectDialog(); return; }
       const tab = ev.target.closest('[data-project]');
       if (!tab || Number(tab.dataset.project) === state.projectId) return;
-      if (useMock) { toast('Modo mock: apenas o projeto de exemplo tem dados.'); return; }
+      if (useMock) { toast('Modo mock: apenas o exemplo selecionado tem dados.'); return; }
       state.projectId = Number(tab.dataset.project);
       history.replaceState(null, '', `?project=${state.projectId}`);
       await refresh();
@@ -723,8 +733,8 @@
         renderEmpty();
         await refresh();
         toast(state.settings && state.settings.configured
-          ? `Projeto “${p.name}” criado. Clique em Sincronizar Outlook.`
-          : `Projeto “${p.name}” criado. Configure o Outlook na engrenagem para sincronizar.`);
+          ? `${created(p)} Clique em Sincronizar Outlook.`
+          : `${created(p)} Configure o Outlook na engrenagem para sincronizar.`);
       } catch (err) {
         toast(err.message, true);
       }

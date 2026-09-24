@@ -309,7 +309,7 @@
 <dialog id="dlgProject" class="modal">
   <form method="dialog" id="formProject" class="p-8 space-y-5">
     <div>
-      <p class="eyebrow text-accent mb-2">Novo projeto</p>
+      <p id="projectDlgEyebrow" class="eyebrow text-accent mb-2">Novo projeto</p>
       <h3 class="text-2xl font-medium tracking-tight text-fg">O que acompanhar?</h3>
     </div>
 
@@ -345,14 +345,14 @@
       <ul class="text-xs text-subtle space-y-1.5 leading-relaxed">
         <li class="flex gap-2"><iconify-icon icon="solar:letter-bold-duotone" class="text-accent mt-0.5 shrink-0"></iconify-icon><span>E-mails que <b class="text-ink font-medium">ela enviou</b>.</span></li>
         <li class="flex gap-2"><iconify-icon icon="solar:users-group-rounded-bold-duotone" class="text-accent mt-0.5 shrink-0"></iconify-icon><span>E-mails em que <b class="text-ink font-medium">você e ela</b> estão em Para ou Cc. "Você" é a caixa configurada e o seu usuário do Outlook.</span></li>
-        <li class="flex gap-2"><iconify-icon icon="solar:calendar-bold-duotone" class="text-accent mt-0.5 shrink-0"></iconify-icon><span>Olha os últimos 90 dias da Caixa de Entrada e das subpastas.</span></li>
+        <li class="flex gap-2"><iconify-icon icon="solar:calendar-bold-duotone" class="text-accent mt-0.5 shrink-0"></iconify-icon><span>Olha só a Caixa de Entrada, sem subpastas, nos últimos 90 dias.</span></li>
       </ul>
       <div id="peopleChips" class="flex flex-wrap gap-1.5"></div>
     </div>
 
     <div class="flex justify-end gap-3 pt-2">
       <button value="cancel" formnovalidate class="btn btn-ghost">Cancelar</button>
-      <button value="ok" class="btn btn-primary">Criar projeto</button>
+      <button value="ok" id="projectDlgSubmit" class="btn btn-primary">Criar projeto</button>
     </div>
   </form>
 </dialog>
@@ -362,7 +362,7 @@
     <div>
       <p class="eyebrow text-accent mb-2">Processar manualmente</p>
       <h3 class="text-2xl font-medium tracking-tight text-fg">Colar um e-mail</h3>
-      <p class="text-sm text-muted mt-2">Passa pelo mesmo motor de regras e entra no projeto atual.</p>
+      <p class="text-sm text-muted mt-2">Passa pelo mesmo motor de regras e entra no item selecionado (projeto ou pessoa).</p>
     </div>
     <div class="grid sm:grid-cols-2 gap-4">
       <label class="block space-y-2"><span class="eyebrow">Remetente</span>

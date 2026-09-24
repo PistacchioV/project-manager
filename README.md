@@ -106,12 +106,12 @@ O modelo é o mesmo do OTC Tracker: o app lê pelo **Outlook aberto no Windows**
 - Em macOS/Linux a tela abre normalmente, mas **Testar conexão** e **Sincronizar** avisam que a leitura exige Windows.
 - O e-mail também pode vir do `.env` (`PM_MAILBOX`). O que for salvo pela tela tem prioridade.
 
-**Regra de busca.** A busca olha a Caixa de Entrada e todas as subpastas, em e-mails lidos ou não. Cada projeto é de um dos dois tipos:
+**Regra de busca.** Entram e-mails lidos ou não. Cada item é de um dos dois tipos, e a tela chama o primeiro de **Projeto** e o segundo de **Pessoa**:
 
-- **Categoria do Outlook:** entram os e-mails marcados com a categoria.
-- **Pessoa:** entram os e-mails que **ela enviou**, ou em que **você e ela** estão juntos em **Para/Cc** (Cco não conta). "Você" é a caixa configurada e o seu usuário do Outlook, o que cobre caixa compartilhada. A busca olha os últimos 90 dias (`PM_MAIL_LOOKBACK_DAYS`). Remetentes e destinatários internos do Exchange são convertidos para o e-mail normal antes da comparação.
+- **Categoria do Outlook (Projeto):** entram os e-mails marcados com a categoria, na Caixa de Entrada e em todas as subpastas.
+- **Pessoa:** busca **só na Caixa de Entrada, sem subpastas**, porque remetente e destinatários são conferidos e-mail a e-mail e varrer todas as pastas ficaria enorme. Entram os e-mails que **ela enviou**, ou em que **você e ela** estão juntos em **Para/Cc** (Cco não conta). "Você" é a caixa configurada e o seu usuário do Outlook, o que cobre caixa compartilhada. A busca olha os últimos 90 dias (`PM_MAIL_LOOKBACK_DAYS`). Remetentes e destinatários internos do Exchange são convertidos para o e-mail normal antes da comparação.
 
-Como as subpastas entram, um e-mail movido por regra continua sendo encontrado. Um e-mail pode entrar em vários projetos, por exemplo pela categoria e pela pessoa. A categoria é comparada sem diferenciar maiúsculas e minúsculas, e itens que não são e-mail (convites, relatórios de entrega) são ignorados. Por padrão os e-mails **não** são marcados como lidos (`PM_MAIL_MARK_AS_READ=0`).
+Na busca por categoria, um e-mail movido por regra para uma subpasta continua sendo encontrado. Um e-mail pode entrar em vários projetos, por exemplo pela categoria e pela pessoa. A categoria é comparada sem diferenciar maiúsculas e minúsculas, e itens que não são e-mail (convites, relatórios de entrega) são ignorados. Por padrão os e-mails **não** são marcados como lidos (`PM_MAIL_MARK_AS_READ=0`).
 
 ## API
 

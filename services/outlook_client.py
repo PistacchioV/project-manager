@@ -7,14 +7,16 @@ Outlook aberto no Windows a caixa pelo e-mail
 usa o acesso que o usuario ja tem, seja a caixa propria ou uma compartilhada
 adicionada ao perfil. Por isso so o e-mail e configurado na tela.
 
-Regra de busca (Caixa de Entrada e todas as subpastas, lidos ou nao). O
-projeto aponta para uma fonte (``source_type``) e um valor
+Regra de busca (lidos ou nao). O projeto aponta para uma fonte (``source_type``) e um valor
 (``outlook_folder_or_tag``):
 
-* ``category`` - e-mails marcados com essa CATEGORIA do Outlook.
+* ``category`` - e-mails marcados com essa CATEGORIA do Outlook, na Caixa
+  de Entrada e em todas as subpastas (o filtro de categoria roda no MAPI).
 * ``person``   - e-mails que essa PESSOA enviou, ou em que voce e ela estao
   juntos em Para/Cc. "Voce" = a caixa configurada + o usuario logado no
-  Outlook. Olha so os ultimos ``lookback_days`` dias (padrao 90).
+  Outlook. So a Caixa de Entrada, SEM subpastas, e so os ultimos
+  ``lookback_days`` dias (padrao 90): remetente/destinatario sao conferidos
+  item a item em Python, e varrer a arvore de pastas ficaria gigante.
 
 Windows-only. Fora do Windows (ou sem pywin32) levanta ``OutlookUnavailable``
 com o motivo, e a tela mostra a mensagem.
@@ -282,6 +284,8 @@ class OutlookMailClient:
                     if _smtp_sender(msg).lower() == person:
                         return True
                     return person_matches("", _to_cc_smtp(msg), person, me)
+
+                folders = [inbox]  # so a Caixa de Entrada: sem subpastas
             else:
                 category = self._canonical_category(inbox, value)
                 restriction = f"@SQL=\"{DASL_CATEGORIES}\" = '{category.replace(chr(39), chr(39) * 2)}'"
@@ -289,8 +293,10 @@ class OutlookMailClient:
                 def keep(msg) -> bool:
                     return has_category(str(msg.Categories or ""), category)
 
+                folders = _walk(inbox)  # Caixa de Entrada + subpastas
+
             found = []
-            for folder in _walk(inbox):
+            for folder in folders:
                 items = folder.Items
                 try:
                     items = items.Restrict(restriction)
